@@ -15,8 +15,8 @@ Hard rules:
 - Metrics code lives in a local Swift package at Packages/SystemMetrics
   with unit tests. The app imports it and contains no metrics logic.
 - Build command (must pass before you say a task is done):
-  xcodegen generate && xcodebuild -project CacheAnalyzer.xcodeproj \
-    -scheme CacheAnalyzer -configuration Debug build
+  xcodegen generate && xcodebuild -project Aktiviti.xcodeproj \
+    -scheme Aktiviti -configuration Debug build
 - Do only the stage you were asked to do. When finished, STOP, show the
   build output, and summarize what you did. Do not start the next stage.
 - Out of scope for now: widgets, cache scanning/cleanup, scheduler,

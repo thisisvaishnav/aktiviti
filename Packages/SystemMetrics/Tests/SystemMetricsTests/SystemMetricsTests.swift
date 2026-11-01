@@ -3,6 +3,12 @@ import XCTest
 
 final class SystemMetricsTests: XCTestCase {
 
+    // MARK: - Placeholder Wiring Test
+
+    func testPlaceholderWiring() {
+        XCTAssertEqual(systemMetricsPlaceholder(), "SystemMetrics ready")
+    }
+
     // MARK: - CPU Math Tests (Fake Inputs)
 
     func testCPUMathZeroDelta() {

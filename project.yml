@@ -1,0 +1,29 @@
+name: Aktiviti
+options:
+  bundleIdPrefix: com.yourname
+settings:
+  MACOSX_DEPLOYMENT_TARGET: "14.0"
+  SWIFT_VERSION: "5.9"
+packages:
+  SystemMetrics:
+    path: Packages/SystemMetrics
+targets:
+  Aktiviti:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - Sources/Aktiviti
+    dependencies:
+      - package: SystemMetrics
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.yourname.aktiviti
+      PRODUCT_NAME: Aktiviti
+      ENABLE_APP_SANDBOX: NO
+      ENABLE_HARDENED_RUNTIME: NO
+      CODE_SIGN_IDENTITY: "-"
+      CODE_SIGNING_REQUIRED: NO
+      CODE_SIGNING_ALLOWED: YES
+      GENERATE_INFOPLIST_FILE: YES
+      INFOPLIST_KEY_LSUIElement: YES
+      INFOPLIST_KEY_CFBundleDisplayName: "Aktiviti"
