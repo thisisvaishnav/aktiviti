@@ -5,8 +5,13 @@ Shows live CPU% and RAM% in the menu bar, and a dashboard window with
 disk usage, RAM usage, and the top RAM-consuming processes.
 
 Hard rules:
-- No third-party dependencies. No database. No caching: data is fetched
-  fresh whenever the dashboard opens. No networking, no analytics.
+- No third-party dependencies. No database. No networking, no analytics.
+- No persistent caching. Allowed exceptions: (a) a bounded in-memory icon
+  cache, validated against process name, cleared when the dashboard closes;
+  (b) disk capacity re-read every 30s while the dashboard is open, but
+  always fresh on open. Metrics refresh pauses while the window is occluded
+  and resumes with an immediate refresh. One shared CPUSampler feeds both
+  the menu bar and the dashboard.
 - NEVER edit .pbxproj files. The Xcode project is generated from
   project.yml with `xcodegen generate`. Change project.yml, then regenerate.
 - The app is NOT sandboxed (ENABLE_APP_SANDBOX = NO), or the process

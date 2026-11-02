@@ -230,6 +230,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     private func resumeMetricsTimer() {
         guard let timer = timer, !isTimerRunning else { return }
+        // Discard any long pause gap by taking a baseline sample right before resuming the timer
+        _ = cpuSampler.sample()
+        timer.schedule(
+            deadline: .now() + .seconds(3),
+            repeating: .seconds(3),
+            leeway: .milliseconds(500)
+        )
         timer.resume()
         isTimerRunning = true
     }
