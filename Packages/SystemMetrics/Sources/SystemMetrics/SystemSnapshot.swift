@@ -30,13 +30,15 @@ public struct SystemSnapshot: Sendable, Equatable {
     /// - Parameters:
     ///   - cpuSampler: Optional CPUSampler instance to read CPU tick deltas.
     ///   - topProcessLimit: Maximum number of top memory processes to return (default: 10).
+    ///   - cachedDisk: Optional pre-existing DiskMetrics to avoid redundant disk I/O when polling frequently.
     public static func capture(
         cpuSampler: CPUSampler? = nil,
-        topProcessLimit: Int = 10
+        topProcessLimit: Int = 10,
+        cachedDisk: DiskMetrics? = nil
     ) -> SystemSnapshot {
         let cpu = cpuSampler?.sample()
         let ram = RAMReader.read()
-        let disk = DiskReader.read()
+        let disk = cachedDisk ?? DiskReader.read()
         let processes = ProcessReader.readTopProcesses(limit: topProcessLimit)
 
         return SystemSnapshot(
@@ -51,14 +53,16 @@ public struct SystemSnapshot: Sendable, Equatable {
     /// - Parameters:
     ///   - samplingInterval: Duration in seconds to measure CPU activity (e.g. 1.0).
     ///   - topProcessLimit: Maximum number of top memory processes to return (default: 10).
+    ///   - cachedDisk: Optional pre-existing DiskMetrics to avoid redundant disk I/O when polling frequently.
     public static func capture(
         samplingCPUFor samplingInterval: TimeInterval,
-        topProcessLimit: Int = 10
+        topProcessLimit: Int = 10,
+        cachedDisk: DiskMetrics? = nil
     ) -> SystemSnapshot {
         let sampler = CPUSampler()
         let cpu = sampler.sample(afterDelay: samplingInterval)
         let ram = RAMReader.read()
-        let disk = DiskReader.read()
+        let disk = cachedDisk ?? DiskReader.read()
         let processes = ProcessReader.readTopProcesses(limit: topProcessLimit)
 
         return SystemSnapshot(

@@ -1,15 +1,12 @@
 import AppKit
 import SwiftUI
-import SystemMetrics
 
 struct ProcessRowView: View {
-    let process: ProcessMetrics
+    let process: ProcessDisplayItem
 
     var body: some View {
         HStack(spacing: 10) {
-            let appIcon = NSRunningApplication(processIdentifier: process.pid)?.icon
-                ?? NSWorkspace.shared.icon(for: .application)
-            Image(nsImage: appIcon)
+            Image(nsImage: process.icon)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 24, height: 24)

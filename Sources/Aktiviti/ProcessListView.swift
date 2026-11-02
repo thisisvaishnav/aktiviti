@@ -1,8 +1,7 @@
 import SwiftUI
-import SystemMetrics
 
 struct ProcessListView: View {
-    let processes: [ProcessMetrics]
+    let processes: [ProcessDisplayItem]
     let isLoading: Bool
 
     var body: some View {

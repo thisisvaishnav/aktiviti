@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        NotificationCenter.default.removeObserver(self)
         dashboardViewModel?.stopRefreshing()
         dashboardViewModel = nil
         dashboardWindow?.close()
@@ -100,7 +101,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             return
         }
 
-        let viewModel = DashboardViewModel()
+        // Optimization 5: Single Shared Metrics Engine - share cpuSampler and feed menu bar
+        let viewModel = DashboardViewModel(
+            cpuSampler: cpuSampler,
+            onMetricsUpdate: { [weak self] cpu, ram in
+                self?.updateMenuBar(cpu: cpu, ram: ram)
+            }
+        )
         self.dashboardViewModel = viewModel
 
         let contentView = DashboardView(viewModel: viewModel)
@@ -119,24 +126,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         window.delegate = self
         window.center()
 
+        // Optimization 4: Occlusion State Awareness
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleOcclusionChange(_:)),
+            name: NSWindow.didChangeOcclusionStateNotification,
+            object: window
+        )
+
         self.dashboardWindow = window
+
+        // Optimization 5: Pause standalone 3s timer while dashboard runs active 2s loop
+        pauseMetricsTimer()
         viewModel.startRefreshing()
 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    // MARK: - NSWindowDelegate
+    // MARK: - NSWindowDelegate & Occlusion
+
+    @objc private func handleOcclusionChange(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, window === dashboardWindow else { return }
+
+        if window.occlusionState.contains(.visible) {
+            pauseMetricsTimer()
+            dashboardViewModel?.resumeRefreshing()
+        } else {
+            // Window is minimized or occluded: pause dashboard updates and resume menu bar timer
+            dashboardViewModel?.pauseRefreshing()
+            resumeMetricsTimer()
+        }
+    }
 
     func windowWillClose(_ notification: Notification) {
         guard let closedWindow = notification.object as? NSWindow, closedWindow === dashboardWindow else {
             return
         }
+        NotificationCenter.default.removeObserver(
+            self,
+            name: NSWindow.didChangeOcclusionStateNotification,
+            object: closedWindow
+        )
+
         closedWindow.isReleasedWhenClosed = false
         closedWindow.contentView = nil
         dashboardViewModel?.stopRefreshing()
         dashboardViewModel = nil
         dashboardWindow = nil
+
+        // Resume standalone 3s timer for menu bar
+        resumeMetricsTimer()
     }
 
     @objc private func toggleLaunchAtLogin() {
@@ -207,15 +247,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private func sampleMetrics() {
         let cpu = cpuSampler.sample()
         let ram = RAMReader.read()
+        updateMenuBar(cpu: cpu, ram: ram)
+    }
 
-        let cpuPercent = min(max(round(cpu.totalUsage), 0), 100)
+    private func updateMenuBar(cpu: CPUMetrics?, ram: RAMMetrics) {
+        let cpuPercent = min(max(round(cpu?.totalUsage ?? 0), 0), 100)
         let ramPercent = min(max(round(ram.usedPercent), 0), 100)
         let formattedText = String(format: "CPU %.0f%% · RAM %.0f%%", cpuPercent, ramPercent)
 
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
-            // Only write to the button when the text actually changed
             if self.lastButtonTitle != formattedText {
                 self.lastButtonTitle = formattedText
                 if let button = self.statusItem.button {
@@ -251,6 +293,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 
     @objc private func handleDidWake() {
-        resumeMetricsTimer()
+        if dashboardWindow == nil {
+            resumeMetricsTimer()
+        }
     }
 }

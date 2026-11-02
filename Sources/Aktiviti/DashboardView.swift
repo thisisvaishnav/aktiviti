@@ -14,7 +14,7 @@ struct DashboardView: View {
             .padding([.top, .horizontal], 16)
 
             ProcessListView(
-                processes: viewModel.topProcesses,
+                processes: viewModel.displayProcesses,
                 isLoading: viewModel.isLoading
             )
         }
