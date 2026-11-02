@@ -1,13 +1,17 @@
 import AppKit
 import Foundation
 import ServiceManagement
+import SwiftUI
 import SystemMetrics
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem!
     private var menu: NSMenu!
     private var headerMenuItem: NSMenuItem!
     private var launchAtLoginMenuItem: NSMenuItem!
+
+    private var dashboardWindow: NSWindow?
+    private var dashboardViewModel: DashboardViewModel?
 
     private let cpuSampler = CPUSampler(prewarm: true)
     private var timer: DispatchSourceTimer?
@@ -21,9 +25,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         setupMenu()
         setupSleepWakeNotifications()
         startMetricsTimer()
+
+        if CommandLine.arguments.contains("--open-dashboard") {
+            openDashboard()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        dashboardViewModel?.stopRefreshing()
+        dashboardViewModel = nil
+        dashboardWindow?.close()
+        dashboardWindow = nil
         stopMetricsTimer()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
@@ -48,7 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         headerMenuItem.isEnabled = false
         menu.addItem(headerMenuItem)
 
-        // 2. Open Dashboard item (logs message for now)
+        // 2. Open Dashboard item
         let openDashboardItem = NSMenuItem(
             title: "Open Dashboard",
             action: #selector(openDashboard),
@@ -82,7 +94,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func openDashboard() {
-        NSLog("[Aktiviti] Open Dashboard requested")
+        if let window = dashboardWindow {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let viewModel = DashboardViewModel()
+        self.dashboardViewModel = viewModel
+
+        let contentView = DashboardView(viewModel: viewModel)
+        let hostingView = NSHostingView(rootView: contentView)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 640),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Aktiviti"
+        window.minSize = NSSize(width: 480, height: 640)
+        window.contentView = hostingView
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        window.center()
+
+        self.dashboardWindow = window
+        viewModel.startRefreshing()
+
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    // MARK: - NSWindowDelegate
+
+    func windowWillClose(_ notification: Notification) {
+        guard let closedWindow = notification.object as? NSWindow, closedWindow === dashboardWindow else {
+            return
+        }
+        closedWindow.isReleasedWhenClosed = false
+        closedWindow.contentView = nil
+        dashboardViewModel?.stopRefreshing()
+        dashboardViewModel = nil
+        dashboardWindow = nil
     }
 
     @objc private func toggleLaunchAtLogin() {
