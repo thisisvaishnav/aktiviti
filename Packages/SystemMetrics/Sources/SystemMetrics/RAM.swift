@@ -30,19 +30,28 @@ public struct RAMMetrics: Sendable, Equatable {
     public let freeBytes: UInt64
     public let compressedBytes: UInt64
     public let pressureLevel: MemoryPressureLevel
+    public let appBytes: UInt64
+    public let wiredBytes: UInt64
+    public let cachedBytes: UInt64
 
     public init(
         totalBytes: UInt64,
         usedBytes: UInt64,
         freeBytes: UInt64,
         compressedBytes: UInt64,
-        pressureLevel: MemoryPressureLevel
+        pressureLevel: MemoryPressureLevel,
+        appBytes: UInt64 = 0,
+        wiredBytes: UInt64 = 0,
+        cachedBytes: UInt64 = 0
     ) {
         self.totalBytes = totalBytes
         self.usedBytes = usedBytes
         self.freeBytes = freeBytes
         self.compressedBytes = compressedBytes
         self.pressureLevel = pressureLevel
+        self.appBytes = appBytes > 0 ? appBytes : (usedBytes > (wiredBytes + compressedBytes) ? (usedBytes - wiredBytes - compressedBytes) : usedBytes)
+        self.wiredBytes = wiredBytes
+        self.cachedBytes = cachedBytes
     }
 
     /// Used memory as a percentage of total physical memory (0.0 - 100.0).
@@ -58,13 +67,17 @@ public enum RAMCalculator {
         wiredPages: UInt64,
         compressorPages: UInt64,
         freePages: UInt64,
+        cachedPages: UInt64 = 0,
         pageSize: UInt64,
         totalBytes: UInt64,
         pressureRawValue: Int32
     ) -> RAMMetrics {
-        let used = (activePages + wiredPages + compressorPages) * pageSize
-        let free = freePages * pageSize
+        let app = activePages * pageSize
+        let wired = wiredPages * pageSize
         let compressed = compressorPages * pageSize
+        let used = app + wired + compressed
+        let free = freePages * pageSize
+        let cached = cachedPages * pageSize
         let pressure = MemoryPressureLevel(rawValue: pressureRawValue)
 
         return RAMMetrics(
@@ -72,7 +85,10 @@ public enum RAMCalculator {
             usedBytes: used,
             freeBytes: free,
             compressedBytes: compressed,
-            pressureLevel: pressure
+            pressureLevel: pressure,
+            appBytes: app,
+            wiredBytes: wired,
+            cachedBytes: cached
         )
     }
 }
@@ -96,6 +112,7 @@ public enum RAMReader {
         let wiredPages = result == KERN_SUCCESS ? UInt64(vmStats.wire_count) : 0
         let compressorPages = result == KERN_SUCCESS ? UInt64(vmStats.compressor_page_count) : 0
         let freePages = result == KERN_SUCCESS ? UInt64(vmStats.free_count) : 0
+        let cachedPages = result == KERN_SUCCESS ? UInt64(vmStats.purgeable_count + vmStats.inactive_count) : 0
 
         var pressureLevel: Int32 = 0
         var pressureSize = MemoryLayout<Int32>.size
@@ -107,6 +124,7 @@ public enum RAMReader {
             wiredPages: wiredPages,
             compressorPages: compressorPages,
             freePages: freePages,
+            cachedPages: cachedPages,
             pageSize: pageSize,
             totalBytes: totalBytes,
             pressureRawValue: pressureValue

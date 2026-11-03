@@ -8,52 +8,75 @@ public struct SystemSnapshot: Sendable, Equatable {
     /// Memory / RAM metrics.
     public let ram: RAMMetrics
 
-    /// Disk space metrics for "/".
+    /// Disk space and I/O metrics for "/".
     public let disk: DiskMetrics
+
+    /// GPU metrics.
+    public let gpu: GPUMetrics?
+
+    /// Network metrics.
+    public let network: NetworkMetrics?
+
+    /// Battery and power metrics.
+    public let battery: BatteryMetrics?
 
     /// Top memory-consuming processes sorted descending by physical footprint.
     public let topProcesses: [ProcessMetrics]
+
+    /// Top power-consuming processes.
+    public let topPowerProcesses: [ProcessMetrics]
 
     public init(
         cpu: CPUMetrics?,
         ram: RAMMetrics,
         disk: DiskMetrics,
-        topProcesses: [ProcessMetrics]
+        topProcesses: [ProcessMetrics],
+        gpu: GPUMetrics? = nil,
+        network: NetworkMetrics? = nil,
+        battery: BatteryMetrics? = nil,
+        topPowerProcesses: [ProcessMetrics] = []
     ) {
         self.cpu = cpu
         self.ram = ram
         self.disk = disk
+        self.gpu = gpu
+        self.network = network
+        self.battery = battery
         self.topProcesses = topProcesses
+        self.topPowerProcesses = topPowerProcesses
     }
 
     /// Captures a one-shot snapshot of system metrics.
-    /// - Parameters:
-    ///   - cpuSampler: Optional CPUSampler instance to read CPU tick deltas.
-    ///   - topProcessLimit: Maximum number of top memory processes to return (default: 10).
-    ///   - cachedDisk: Optional pre-existing DiskMetrics to avoid redundant disk I/O when polling frequently.
     public static func capture(
         cpuSampler: CPUSampler? = nil,
+        gpuSampler: GPUSampler? = nil,
+        networkSampler: NetworkSampler? = nil,
+        diskSampler: DiskSampler? = nil,
         topProcessLimit: Int = 10,
         cachedDisk: DiskMetrics? = nil
     ) -> SystemSnapshot {
         let cpu = cpuSampler?.sample()
         let ram = RAMReader.read()
-        let disk = cachedDisk ?? DiskReader.read()
+        let disk = diskSampler?.sample() ?? cachedDisk ?? DiskReader.read()
+        let gpu = gpuSampler?.sample()
+        let network = networkSampler?.sample()
+        let battery = BatteryReader.read()
         let processes = ProcessReader.readTopProcesses(limit: topProcessLimit)
+        let powerProcs = ProcessReader.readTopPowerProcesses(limit: 5)
 
         return SystemSnapshot(
             cpu: cpu,
             ram: ram,
             disk: disk,
-            topProcesses: processes
+            topProcesses: processes,
+            gpu: gpu,
+            network: network,
+            battery: battery,
+            topPowerProcesses: powerProcs
         )
     }
 
     /// Captures a one-shot snapshot, taking an active CPU measurement over the given duration.
-    /// - Parameters:
-    ///   - samplingInterval: Duration in seconds to measure CPU activity (e.g. 1.0).
-    ///   - topProcessLimit: Maximum number of top memory processes to return (default: 10).
-    ///   - cachedDisk: Optional pre-existing DiskMetrics to avoid redundant disk I/O when polling frequently.
     public static func capture(
         samplingCPUFor samplingInterval: TimeInterval,
         topProcessLimit: Int = 10,
@@ -64,12 +87,18 @@ public struct SystemSnapshot: Sendable, Equatable {
         let ram = RAMReader.read()
         let disk = cachedDisk ?? DiskReader.read()
         let processes = ProcessReader.readTopProcesses(limit: topProcessLimit)
+        let powerProcs = ProcessReader.readTopPowerProcesses(limit: 5)
+        let battery = BatteryReader.read()
 
         return SystemSnapshot(
             cpu: cpu,
             ram: ram,
             disk: disk,
-            topProcesses: processes
+            topProcesses: processes,
+            gpu: nil,
+            network: nil,
+            battery: battery,
+            topPowerProcesses: powerProcs
         )
     }
 }

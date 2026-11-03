@@ -33,9 +33,22 @@ public struct CPUMetrics: Sendable, Equatable {
     /// Per-core CPU usage percentage (0.0 - 100.0 for each core).
     public let perCoreUsage: [Double]
 
-    public init(totalUsage: Double, perCoreUsage: [Double]) {
+    /// User CPU usage percentage (0.0 - 100.0).
+    public let userUsage: Double
+
+    /// System CPU usage percentage (0.0 - 100.0).
+    public let systemUsage: Double
+
+    public init(
+        totalUsage: Double,
+        perCoreUsage: [Double],
+        userUsage: Double = 0.0,
+        systemUsage: Double = 0.0
+    ) {
         self.totalUsage = totalUsage
         self.perCoreUsage = perCoreUsage
+        self.userUsage = userUsage
+        self.systemUsage = systemUsage
     }
 }
 
@@ -45,10 +58,12 @@ public enum CPUCalculator {
     public static func calculateDelta(previous: [CoreTicks], current: [CoreTicks]) -> CPUMetrics {
         guard !previous.isEmpty, previous.count == current.count else {
             let zeros = [Double](repeating: 0.0, count: current.count)
-            return CPUMetrics(totalUsage: 0.0, perCoreUsage: zeros)
+            return CPUMetrics(totalUsage: 0.0, perCoreUsage: zeros, userUsage: 0.0, systemUsage: 0.0)
         }
 
         var totalDeltaUsed: UInt64 = 0
+        var totalDeltaUser: UInt64 = 0
+        var totalDeltaSystem: UInt64 = 0
         var totalDeltaTicks: UInt64 = 0
         var perCore: [Double] = []
         perCore.reserveCapacity(current.count)
@@ -62,9 +77,12 @@ public enum CPUCalculator {
             let deltaIdle = curr.idle >= prev.idle ? curr.idle - prev.idle : 0
             let deltaNice = curr.nice >= prev.nice ? curr.nice - prev.nice : 0
 
-            let coreDeltaUsed = deltaUser + deltaSystem + deltaNice
+            let coreDeltaUser = deltaUser + deltaNice
+            let coreDeltaUsed = coreDeltaUser + deltaSystem
             let coreDeltaTotal = coreDeltaUsed + deltaIdle
 
+            totalDeltaUser += coreDeltaUser
+            totalDeltaSystem += deltaSystem
             totalDeltaUsed += coreDeltaUsed
             totalDeltaTicks += coreDeltaTotal
 
@@ -78,15 +96,23 @@ public enum CPUCalculator {
         }
 
         let overallPercent: Double
+        let overallUser: Double
+        let overallSystem: Double
         if totalDeltaTicks > 0 {
             overallPercent = (Double(totalDeltaUsed) / Double(totalDeltaTicks)) * 100.0
+            overallUser = (Double(totalDeltaUser) / Double(totalDeltaTicks)) * 100.0
+            overallSystem = (Double(totalDeltaSystem) / Double(totalDeltaTicks)) * 100.0
         } else {
             overallPercent = 0.0
+            overallUser = 0.0
+            overallSystem = 0.0
         }
 
         return CPUMetrics(
             totalUsage: min(max(overallPercent, 0.0), 100.0),
-            perCoreUsage: perCore
+            perCoreUsage: perCore,
+            userUsage: min(max(overallUser, 0.0), 100.0),
+            systemUsage: min(max(overallSystem, 0.0), 100.0)
         )
     }
 }
