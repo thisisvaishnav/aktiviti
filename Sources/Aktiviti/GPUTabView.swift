@@ -3,50 +3,64 @@ import SwiftUI
 struct GPUTabView: View {
     @Bindable var viewModel: DashboardViewModel
 
-    private let gpuTint = Color(red: 217/255, green: 35/255, blue: 117/255)
+    private let gpuTint = Color(red: 175/255, green: 70/255, blue: 235/255)
 
     init(viewModel: DashboardViewModel) {
         self.viewModel = viewModel
     }
 
-    private var gpuUtil: Double {
-        viewModel.gpu?.utilization ?? 78.0
+    private var deviceName: String {
+        viewModel.gpu?.deviceName ?? "Apple Silicon GPU"
     }
 
-    private var modelName: String {
-        viewModel.gpu?.deviceName ?? "Apple M2 GPU"
+    private var currentUtil: Double {
+        viewModel.gpu?.utilization ?? 0.0
     }
 
-    private var memAllocText: String {
-        if let g = viewModel.gpu {
+    private var coreCountBadgeText: String {
+        if let g = viewModel.gpu, g.coreCount > 0 {
+            return "\(g.coreCount) GPU Cores"
+        }
+        return "GPU Active"
+    }
+
+    private var inUseVRAMText: String {
+        if let g = viewModel.gpu, g.inUseMemoryBytes > 0 {
+            return ByteFormatter.formatBytes(g.inUseMemoryBytes, style: .memory)
+        }
+        return "0 MB"
+    }
+
+    private var allocatedVRAMText: String {
+        if let g = viewModel.gpu, g.allocatedMemoryBytes > 0 {
             return ByteFormatter.formatBytes(g.allocatedMemoryBytes, style: .memory)
         }
-        return "1.40 GB"
-    }
-
-    private var avgUtilText: String {
-        if let g = viewModel.gpu {
-            return String(format: "%.0f%%", g.averageUtilization)
-        }
-        return "14%"
+        return "0 MB"
     }
 
     private var peakUtilText: String {
         if let g = viewModel.gpu {
             return String(format: "%.0f%%", g.peakUtilization)
         }
-        return "48%"
+        return "0%"
+    }
+
+    private var avgUtilText: String {
+        if let g = viewModel.gpu {
+            return String(format: "%.0f%%", g.averageUtilization)
+        }
+        return "0%"
     }
 
     var body: some View {
         VStack(spacing: 14) {
-            // 1. Hero Card
+            // 1. Hero Card: Device Name, Utilization, Core Count, VRAM
             TabHeroCardView(
-                caption: modelName,
-                mainValue: String(format: "%.0f", gpuUtil),
+                caption: deviceName,
+                mainValue: String(format: "%.0f", currentUtil),
                 unit: "%",
-                statusBadge: (text: "10 GPU Cores", isNormal: true),
-                statRow1: (label: "Allocated VRAM", value: memAllocText),
+                statusBadge: (text: coreCountBadgeText, isNormal: true),
+                statRow1: (label: "Allocated VRAM", value: allocatedVRAMText),
                 statRow2: (label: "Peak Today", value: peakUtilText),
                 chartData: viewModel.gpuHistory,
                 chartTint: gpuTint,
@@ -57,23 +71,23 @@ struct GPUTabView: View {
             HStack(spacing: 14) {
                 TabSubcardView(
                     title: "GPU Load",
-                    icon: "square.stack.3d.up.fill",
-                    value: String(format: "%.0f%%", gpuUtil),
+                    icon: "speedometer",
+                    value: String(format: "%.0f%%", currentUtil),
                     tint: gpuTint,
-                    style: .progress(ratio: gpuUtil / 100.0)
+                    style: .progress(ratio: currentUtil / 100.0)
                 )
 
                 TabSubcardView(
                     title: "VRAM Footprint",
                     icon: "memorychip.fill",
-                    value: memAllocText,
+                    value: inUseVRAMText,
                     tint: gpuTint,
                     style: .standard(subtitle: "Unified memory pool")
                 )
 
                 TabSubcardView(
                     title: "Metal Engine",
-                    icon: "cpu.fill",
+                    icon: "cube.transparent.fill",
                     value: "Metal 3",
                     tint: gpuTint,
                     style: .standard(subtitle: "Hardware Acceleration")
@@ -93,7 +107,6 @@ struct GPUTabView: View {
 
             // 3. Bottom Row: Process Table Card
             TabProcessTableView(
-                titleHeader: "App",
                 metricHeader: "GPU Load",
                 items: viewModel.gpuProcessRows,
                 tint: gpuTint

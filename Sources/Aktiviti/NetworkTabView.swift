@@ -3,53 +3,75 @@ import SwiftUI
 struct NetworkTabView: View {
     @Bindable var viewModel: DashboardViewModel
 
-    private let networkTint = Color(red: 11/255, green: 130/255, blue: 99/255)
+    private let networkTint = Color(red: 40/255, green: 175/255, blue: 215/255)
 
     init(viewModel: DashboardViewModel) {
         self.viewModel = viewModel
     }
 
+    private var downloadRate: Double {
+        viewModel.network?.downloadRateBytesPerSec ?? 0.0
+    }
+
+    private var uploadRate: Double {
+        viewModel.network?.uploadRateBytesPerSec ?? 0.0
+    }
+
+    private var totalBandwidthBytesPerSec: Double {
+        downloadRate + uploadRate
+    }
+
+    private var totalBandwidthText: String {
+        ByteFormatter.formatBytes(UInt64(max(0, totalBandwidthBytesPerSec)), style: .memory) + "/s"
+    }
+
     private var downloadRateText: String {
-        if let n = viewModel.network, n.downloadRateBytesPerSec > 50_000 {
-            return ByteFormatter.formatRate(n.downloadRateBytesPerSec)
-        }
-        return "2.9 MB/s"
+        ByteFormatter.formatBytes(UInt64(max(0, downloadRate)), style: .memory) + "/s"
     }
 
     private var uploadRateText: String {
-        if let n = viewModel.network, n.uploadRateBytesPerSec > 20_000 {
-            return ByteFormatter.formatRate(n.uploadRateBytesPerSec)
-        }
-        return "890 kB/s"
+        ByteFormatter.formatBytes(UInt64(max(0, uploadRate)), style: .memory) + "/s"
     }
 
-    private var totalRateNumber: String {
-        if let n = viewModel.network, (n.downloadRateBytesPerSec + n.uploadRateBytesPerSec) > 100_000 {
-            let mb = (n.downloadRateBytesPerSec + n.uploadRateBytesPerSec) / (1024 * 1024)
-            if mb >= 1.0 {
-                return String(format: "%.1f", mb)
-            } else {
-                return String(format: "%.0f", (n.downloadRateBytesPerSec + n.uploadRateBytesPerSec) / 1024)
+    private var downloadedTodayText: String {
+        if let net = viewModel.network {
+            return ByteFormatter.formatBytes(net.totalInBytes, style: .file)
+        }
+        return "0 MB"
+    }
+
+    private var uploadedTodayText: String {
+        if let net = viewModel.network {
+            return ByteFormatter.formatBytes(net.totalOutBytes, style: .file)
+        }
+        return "0 MB"
+    }
+
+    private var activeInterfaceText: String {
+        if let net = viewModel.network {
+            return "Wi-Fi (\(net.activeInterfaceName))"
+        }
+        return "Wi-Fi (en0)"
+    }
+
+    private var linkSpeedText: String {
+        if let net = viewModel.network {
+            let band = net.wifiBandString ?? "5 GHz"
+            if let speed = net.linkSpeedMbps {
+                return "\(band) · \(Int(speed)) Mbps link"
             }
+            return "\(band) · Connected"
         }
-        return "3.8"
-    }
-
-    private var totalRateUnit: String {
-        if let n = viewModel.network, (n.downloadRateBytesPerSec + n.uploadRateBytesPerSec) > 100_000 {
-            let mb = (n.downloadRateBytesPerSec + n.uploadRateBytesPerSec) / (1024 * 1024)
-            return mb >= 1.0 ? "MB/s" : "kB/s"
-        }
-        return "MB/s"
+        return "Active link"
     }
 
     var body: some View {
         VStack(spacing: 14) {
-            // 1. Hero Card
+            // 1. Hero Card: Distinct Aggregate Bandwidth
             TabHeroCardView(
                 caption: "Total Bandwidth",
-                mainValue: totalRateNumber,
-                unit: totalRateUnit,
+                mainValue: totalBandwidthText,
+                unit: "",
                 statusBadge: (text: "Online", isNormal: true),
                 statRow1: (label: "Download", value: downloadRateText),
                 statRow2: (label: "Upload", value: uploadRateText),
@@ -63,7 +85,7 @@ struct NetworkTabView: View {
                 TabSubcardView(
                     title: "Downloaded Today",
                     icon: "arrow.down.circle.fill",
-                    value: "4.60 GB",
+                    value: downloadedTodayText,
                     tint: networkTint,
                     style: .standard(subtitle: "Inbound traffic today")
                 )
@@ -71,7 +93,7 @@ struct NetworkTabView: View {
                 TabSubcardView(
                     title: "Uploaded Today",
                     icon: "arrow.up.circle.fill",
-                    value: "1.28 GB",
+                    value: uploadedTodayText,
                     tint: networkTint,
                     style: .standard(subtitle: "Outbound traffic today")
                 )
@@ -79,14 +101,14 @@ struct NetworkTabView: View {
                 TabSubcardView(
                     title: "Active Interface",
                     icon: "wifi",
-                    value: "Wi-Fi (en0)",
+                    value: activeInterfaceText,
                     tint: networkTint,
-                    style: .standard(subtitle: "5 GHz · 1200 Mbps link")
+                    style: .standard(subtitle: linkSpeedText)
                 )
 
                 TabSubcardView(
                     title: "Top Network App",
-                    icon: "network",
+                    icon: "square.grid.2x2.fill",
                     value: viewModel.topNetworkApp.value,
                     tint: networkTint,
                     style: .topApp(
@@ -98,7 +120,6 @@ struct NetworkTabView: View {
 
             // 3. Bottom Row: Process Table Card
             TabProcessTableView(
-                titleHeader: "App",
                 metricHeader: "Bandwidth",
                 items: viewModel.networkProcessRows,
                 tint: networkTint

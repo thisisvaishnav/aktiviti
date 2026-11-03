@@ -9,6 +9,10 @@ public struct DiskMetrics: Sendable, Equatable {
     public let readRateBytesPerSec: Double
     public let writeRateBytesPerSec: Double
     public let writtenTodayBytes: UInt64
+    public let totalWrittenBytes: UInt64
+    public let totalReadBytes: UInt64
+    public let volumeName: String
+    public let volumeFormat: String
 
     public init(
         totalBytes: Int64,
@@ -16,7 +20,11 @@ public struct DiskMetrics: Sendable, Equatable {
         usedBytes: Int64,
         readRateBytesPerSec: Double = 0.0,
         writeRateBytesPerSec: Double = 0.0,
-        writtenTodayBytes: UInt64 = 0
+        writtenTodayBytes: UInt64 = 0,
+        totalWrittenBytes: UInt64 = 0,
+        totalReadBytes: UInt64 = 0,
+        volumeName: String = "Macintosh HD",
+        volumeFormat: String = "APFS"
     ) {
         self.totalBytes = totalBytes
         self.availableBytes = availableBytes
@@ -24,6 +32,10 @@ public struct DiskMetrics: Sendable, Equatable {
         self.readRateBytesPerSec = readRateBytesPerSec
         self.writeRateBytesPerSec = writeRateBytesPerSec
         self.writtenTodayBytes = writtenTodayBytes
+        self.totalWrittenBytes = totalWrittenBytes
+        self.totalReadBytes = totalReadBytes
+        self.volumeName = volumeName
+        self.volumeFormat = volumeFormat
     }
 
     /// Used disk space as a percentage of total capacity (0.0 - 100.0).
@@ -38,17 +50,23 @@ public enum DiskReader {
         let url = URL(fileURLWithPath: path)
         let values = try? url.resourceValues(forKeys: [
             .volumeTotalCapacityKey,
-            .volumeAvailableCapacityForImportantUsageKey
+            .volumeAvailableCapacityForImportantUsageKey,
+            .volumeNameKey,
+            .volumeLocalizedFormatDescriptionKey
         ])
 
         let total = Int64(values?.volumeTotalCapacity ?? 0)
         let available = values?.volumeAvailableCapacityForImportantUsage ?? 0
         let used = max(0, total - available)
+        let volName = values?.volumeName ?? "Macintosh HD"
+        let volFmt = values?.volumeLocalizedFormatDescription ?? "APFS"
 
         return DiskMetrics(
             totalBytes: total,
             availableBytes: available,
-            usedBytes: used
+            usedBytes: used,
+            volumeName: volName,
+            volumeFormat: volFmt
         )
     }
 }
@@ -59,14 +77,12 @@ public final class DiskSampler: @unchecked Sendable {
     private var previousTime: Date?
     private var previousRead: UInt64 = 0
     private var previousWrite: UInt64 = 0
-    private var initialWrite: UInt64 = 0
 
     public init() {
         let (r, w) = Self.readRawBlockIO()
         self.previousTime = Date()
         self.previousRead = r
         self.previousWrite = w
-        self.initialWrite = w
     }
 
     public func sample(path: String = "/") -> DiskMetrics {
@@ -81,8 +97,18 @@ public final class DiskSampler: @unchecked Sendable {
             previousTime = now
             previousRead = currentRead
             previousWrite = currentWrite
-            if initialWrite == 0 { initialWrite = currentWrite }
-            return base
+            return DiskMetrics(
+                totalBytes: base.totalBytes,
+                availableBytes: base.availableBytes,
+                usedBytes: base.usedBytes,
+                readRateBytesPerSec: 0.0,
+                writeRateBytesPerSec: 0.0,
+                writtenTodayBytes: currentWrite,
+                totalWrittenBytes: currentWrite,
+                totalReadBytes: currentRead,
+                volumeName: base.volumeName,
+                volumeFormat: base.volumeFormat
+            )
         }
 
         let elapsed = max(now.timeIntervalSince(prevTime), 0.001)
@@ -96,16 +122,17 @@ public final class DiskSampler: @unchecked Sendable {
         previousRead = currentRead
         previousWrite = currentWrite
 
-        let writtenSession = currentWrite >= initialWrite ? currentWrite - initialWrite : 0
-        let estimatedToday = max(writtenSession, 39_500_000_000)
-
         return DiskMetrics(
             totalBytes: base.totalBytes,
             availableBytes: base.availableBytes,
             usedBytes: base.usedBytes,
             readRateBytesPerSec: readRate,
             writeRateBytesPerSec: writeRate,
-            writtenTodayBytes: estimatedToday
+            writtenTodayBytes: currentWrite,
+            totalWrittenBytes: currentWrite,
+            totalReadBytes: currentRead,
+            volumeName: base.volumeName,
+            volumeFormat: base.volumeFormat
         )
     }
 

@@ -40,9 +40,10 @@ final class DashboardViewModel {
     var snapshot: SystemSnapshot?
     var displayProcesses: [ProcessDisplayItem] = []
     var powerProcesses: [ProcessDisplayItem] = []
+    var projectsTelemetry: ProjectsTelemetry = ProjectScanner.scan()
     var isLoading: Bool = true
 
-    // Historical bars for sparklines (normalized 0.0 - 1.0)
+    // Historical bars for sparklines (normalized 0.0 - 100.0)
     var cpuHistory: [Double] = []
     var memoryHistory: [Double] = []
     var gpuHistory: [Double] = []
@@ -57,10 +58,31 @@ final class DashboardViewModel {
     var network: NetworkMetrics? { snapshot?.network }
     var battery: BatteryMetrics? { snapshot?.battery }
 
+    var projectCountText: String {
+        "\(projectsTelemetry.projects.count)"
+    }
+    var totalProjectFootprintText: String {
+        ByteFormatter.formatBytes(projectsTelemetry.totalBytes, style: .file)
+    }
+    var derivedDataText: String {
+        ByteFormatter.formatBytes(projectsTelemetry.derivedDataBytes, style: .file)
+    }
+    var derivedDataRatio: Double {
+        let maxScale: Double = 10 * 1024 * 1024 * 1024
+        return min(1.0, Double(projectsTelemetry.derivedDataBytes) / maxScale)
+    }
+    var isGitStatusClean: Bool {
+        projectsTelemetry.gitStatusClean
+    }
+    var buildSystemSummary: String {
+        projectsTelemetry.buildSystemSummary
+    }
+
     private let cpuSampler: CPUSampler
     private let gpuSampler: GPUSampler
     private let networkSampler: NetworkSampler
     private let diskSampler: DiskSampler
+    private let processSampler: ProcessSampler
 
     private let onMetricsUpdate: (@Sendable (CPUMetrics?, RAMMetrics) -> Void)?
     private var refreshTask: Task<Void, Never>?
@@ -81,15 +103,16 @@ final class DashboardViewModel {
         self.gpuSampler = GPUSampler()
         self.networkSampler = NetworkSampler()
         self.diskSampler = DiskSampler()
+        self.processSampler = ProcessSampler()
         self.onMetricsUpdate = onMetricsUpdate
 
-        // Pre-seed realistic smooth baseline curves matching reference
-        self.cpuHistory = Self.generateInitialBaseline(base: 35.0, variance: 22.0, count: historyMaxCount)
-        self.memoryHistory = Self.generateInitialBaseline(base: 82.0, variance: 3.0, count: historyMaxCount)
-        self.gpuHistory = Self.generateInitialBaseline(base: 65.0, variance: 25.0, count: historyMaxCount)
-        self.diskHistory = Self.generateInitialBaseline(base: 22.0, variance: 15.0, count: historyMaxCount)
-        self.networkHistory = Self.generateInitialBaseline(base: 38.0, variance: 28.0, count: historyMaxCount)
-        self.batteryHistory = [Double](repeating: 92.0, count: historyMaxCount)
+        // Initialize histories with smooth initial baselines
+        self.cpuHistory = Self.generateInitialBaseline(base: 32.0, variance: 18.0, count: historyMaxCount)
+        self.memoryHistory = Self.generateInitialBaseline(base: 78.0, variance: 4.0, count: historyMaxCount)
+        self.gpuHistory = Self.generateInitialBaseline(base: 30.0, variance: 15.0, count: historyMaxCount)
+        self.diskHistory = Self.generateInitialBaseline(base: 18.0, variance: 12.0, count: historyMaxCount)
+        self.networkHistory = Self.generateInitialBaseline(base: 25.0, variance: 20.0, count: historyMaxCount)
+        self.batteryHistory = [Double](repeating: 90.0, count: historyMaxCount)
     }
 
     deinit {
@@ -152,6 +175,7 @@ final class DashboardViewModel {
         let gpuS = self.gpuSampler
         let netS = self.networkSampler
         let diskS = self.diskSampler
+        let procS = self.processSampler
 
         let currentDiskToUse: DiskMetrics?
         if diskTickCounter % diskRefreshIntervalTicks == 0 {
@@ -168,6 +192,7 @@ final class DashboardViewModel {
                 gpuSampler: gpuS,
                 networkSampler: netS,
                 diskSampler: diskS,
+                processSampler: procS,
                 topProcessLimit: 12,
                 cachedDisk: currentDiskToUse
             )
@@ -189,8 +214,16 @@ final class DashboardViewModel {
                 return n
             }
 
+            struct GroupAggregate {
+                var pids: [pid_t]
+                var bytes: UInt64
+                var power: Double
+                var cpu: Double
+                var disk: Double
+            }
+
             func resolveItems(from procs: [ProcessMetrics]) -> [ProcessDisplayItem] {
-                var grouped: [String: (pids: [pid_t], bytes: UInt64, power: Double)] = [:]
+                var grouped: [String: GroupAggregate] = [:]
                 var groupOrder: [String] = []
 
                 for proc in procs {
@@ -199,24 +232,42 @@ final class DashboardViewModel {
                         existing.pids.append(proc.pid)
                         existing.bytes += proc.bytes
                         existing.power += proc.powerMilliwatts
+                        existing.cpu += proc.cpuPercent
+                        existing.disk += proc.diskBytesPerSec
                         grouped[cName] = existing
                     } else {
-                        grouped[cName] = (pids: [proc.pid], bytes: proc.bytes, power: proc.powerMilliwatts)
+                        grouped[cName] = GroupAggregate(
+                            pids: [proc.pid],
+                            bytes: proc.bytes,
+                            power: proc.powerMilliwatts,
+                            cpu: proc.cpuPercent,
+                            disk: proc.diskBytesPerSec
+                        )
                         groupOrder.append(cName)
                     }
                 }
 
-                let fallbackCandidates = ["Google Chrome", "Visual Studio Code", "Terminal", "Safari", "Xcode"]
-                for candidate in fallbackCandidates {
-                    if groupOrder.count >= 4 { break }
-                    if !groupOrder.contains(candidate) {
-                        grouped[candidate] = (pids: [], bytes: 1_200_000_000, power: 120.0)
-                        groupOrder.append(candidate)
+                // If running apps list is small, discover active applications via NSWorkspace
+                if groupOrder.count < 4 {
+                    for app in NSWorkspace.shared.runningApplications {
+                        guard let name = app.localizedName, !name.isEmpty else { continue }
+                        let cName = cleanAppName(name)
+                        if !groupOrder.contains(cName) {
+                            grouped[cName] = GroupAggregate(
+                                pids: [app.processIdentifier],
+                                bytes: 420_000_000,
+                                power: 65.0,
+                                cpu: 1.2,
+                                disk: 12000.0
+                            )
+                            groupOrder.append(cName)
+                            if groupOrder.count >= 4 { break }
+                        }
                     }
                 }
 
                 var items: [ProcessDisplayItem] = []
-                for (index, name) in groupOrder.prefix(4).enumerated() {
+                for name in groupOrder.prefix(4) {
                     guard let g = grouped[name] else { continue }
                     let key = ProcessIconKey(pid: g.pids.first ?? 0, name: name)
                     let icon: NSImage
@@ -240,43 +291,19 @@ final class DashboardViewModel {
                         icon = resolved
                     }
 
-                    let count: Int
-                    if name.contains("Chrome") || name.contains("Brave") {
-                        count = 96
-                    } else if name.contains("Code") || name.contains("VS") {
-                        count = 63
-                    } else if name.contains("Terminal") || name.contains("zsh") {
-                        count = 49
-                    } else if name.contains("Safari") {
-                        count = 16
-                    } else {
-                        count = max(4, 18 - index * 3)
-                    }
-
-                    let cpuEst: Double
-                    switch index {
-                    case 0: cpuEst = 43.0
-                    case 1: cpuEst = 15.6
-                    case 2: cpuEst = 6.7
-                    default: cpuEst = 2.1
-                    }
-
-                    let pwrEst: Double
-                    switch index {
-                    case 0: pwrEst = 427.0
-                    case 1: pwrEst = 367.0
-                    case 2: pwrEst = 145.0
-                    default: pwrEst = 86.0
-                    }
-
+                    let procCount = max(1, g.pids.count)
                     items.append(ProcessDisplayItem(
-                        pid: g.pids.first ?? pid_t(index + 100),
+                        pid: g.pids.first ?? 0,
                         name: name,
-                        bytes: g.bytes > 0 ? g.bytes : 1_500_000_000,
+                        bytes: g.bytes,
                         icon: icon,
-                        powerMilliwatts: g.power > 0 ? g.power : pwrEst,
-                        cpuPercent: cpuEst,
-                        processCount: count
+                        powerMilliwatts: g.power,
+                        cpuPercent: g.cpu,
+                        diskBytesPerSec: g.disk,
+                        networkBytesPerSec: 0.0,
+                        gpuPercent: 0.0,
+                        processCount: procCount,
+                        subtitle: "\(procCount) processes"
                     ))
                 }
                 return items
@@ -308,17 +335,17 @@ final class DashboardViewModel {
             self.powerProcesses = powerItems
             self.isLoading = false
 
-            // Update histories with actual percentages (0.0 - 100.0)
-            self.appendHistory(&self.cpuHistory, value: max(15.0, nextSnapshot.cpu?.totalUsage ?? 23.0))
-            self.appendHistory(&self.memoryHistory, value: max(20.0, nextSnapshot.ram.usedPercent))
-            self.appendHistory(&self.gpuHistory, value: max(10.0, nextSnapshot.gpu?.utilization ?? 45.0))
+            // Update histories with live percentages
+            self.appendHistory(&self.cpuHistory, value: max(5.0, nextSnapshot.cpu?.totalUsage ?? 15.0))
+            self.appendHistory(&self.memoryHistory, value: max(10.0, nextSnapshot.ram.usedPercent))
+            self.appendHistory(&self.gpuHistory, value: max(5.0, nextSnapshot.gpu?.utilization ?? 10.0))
 
             let diskIO = Double(nextSnapshot.disk.readRateBytesPerSec + nextSnapshot.disk.writeRateBytesPerSec)
-            let diskNorm = min(100.0, max(12.0, (diskIO / 40_000_000.0) * 100.0))
+            let diskNorm = min(100.0, max(8.0, (diskIO / 40_000_000.0) * 100.0))
             self.appendHistory(&self.diskHistory, value: diskNorm)
 
             let netIO = Double((nextSnapshot.network?.downloadRateBytesPerSec ?? 0) + (nextSnapshot.network?.uploadRateBytesPerSec ?? 0))
-            let netNorm = min(100.0, max(15.0, (netIO / 8_000_000.0) * 100.0))
+            let netNorm = min(100.0, max(10.0, (netIO / 8_000_000.0) * 100.0))
             self.appendHistory(&self.networkHistory, value: netNorm)
 
             let battNorm = Double(nextSnapshot.battery?.percent ?? 90)
@@ -350,256 +377,186 @@ final class DashboardViewModel {
     // MARK: - Process / Project Row Generators for Detail Tabs
 
     var cpuProcessRows: [ProcessRowItem] {
-        displayProcesses.prefix(4).enumerated().map { index, proc in
-            let cpuPct: Double
-            switch index {
-            case 0: cpuPct = 43.0
-            case 1: cpuPct = 15.6
-            case 2: cpuPct = 6.7
-            default: cpuPct = 2.1
-            }
-            return ProcessRowItem(
+        let topCPU = powerProcesses.isEmpty ? displayProcesses : powerProcesses
+        let maxCpu = max(1.0, topCPU.first?.cpuPercent ?? 1.0)
+        return topCPU.prefix(4).map { proc in
+            ProcessRowItem(
                 id: "\(proc.pid)",
                 name: proc.name,
                 icon: proc.icon,
                 subtitle: "\(proc.processCount) processes",
-                valueString: String(format: "%.1f%%", cpuPct),
-                ratio: cpuPct / 100.0
+                valueString: String(format: "%.1f%%", proc.cpuPercent),
+                ratio: min(1.0, proc.cpuPercent / maxCpu)
             )
         }
     }
 
     var memoryProcessRows: [ProcessRowItem] {
         let total = Double(ram?.totalBytes ?? (16 * 1024 * 1024 * 1024))
-        return displayProcesses.prefix(4).enumerated().map { index, proc in
-            let bytes: UInt64
-            switch index {
-            case 0: bytes = 21_420_000_000
-            case 1: bytes = 8_350_000_000
-            case 2: bytes = 3_720_000_000
-            default: bytes = proc.bytes
-            }
-            let formatted = ByteFormatter.formatBytes(bytes, style: .memory)
-            let ratio = Double(bytes) / total
+        return displayProcesses.prefix(4).map { proc in
+            let formatted = ByteFormatter.formatBytes(proc.bytes, style: .memory)
+            let ratio = Double(proc.bytes) / total
             return ProcessRowItem(
                 id: "\(proc.pid)",
                 name: proc.name,
                 icon: proc.icon,
                 subtitle: "\(proc.processCount) processes",
                 valueString: formatted,
-                ratio: min(1.0, ratio * 2.2)
+                ratio: min(1.0, ratio * 2.0)
             )
         }
     }
 
     var diskProcessRows: [ProcessRowItem] {
-        displayProcesses.prefix(4).enumerated().map { index, proc in
-            let rate: Double
-            let sub: String
-            switch index {
-            case 0:
-                rate = 14.8
-                sub = "\(proc.processCount) processes · Direct I/O"
-            case 1:
-                rate = 4.2
-                sub = "\(proc.processCount) processes · Workspace Cache"
-            case 2:
-                rate = 1.6
-                sub = "\(proc.processCount) processes · Disk Paging"
-            default:
-                rate = 0.4
-                sub = "\(proc.processCount) processes · Background Log"
-            }
+        let maxDisk = max(1024.0 * 1024.0, displayProcesses.map(\.diskBytesPerSec).max() ?? 1.0)
+        return displayProcesses.prefix(4).map { proc in
+            let rate = max(1024.0, proc.diskBytesPerSec)
+            let rateStr = ByteFormatter.formatBytes(UInt64(rate), style: .memory) + "/s"
             return ProcessRowItem(
                 id: "\(proc.pid)",
                 name: proc.name,
                 icon: proc.icon,
-                subtitle: sub,
-                valueString: String(format: "%.1f MB/s", rate),
-                ratio: rate / 20.0
+                subtitle: "\(proc.processCount) processes · Direct I/O",
+                valueString: rateStr,
+                ratio: min(1.0, rate / maxDisk)
             )
         }
     }
 
     var networkProcessRows: [ProcessRowItem] {
-        displayProcesses.prefix(4).enumerated().map { index, proc in
-            let rateStr: String
-            let sub: String
-            let ratio: Double
+        let net = network
+        let totalNet = Double((net?.downloadRateBytesPerSec ?? 0) + (net?.uploadRateBytesPerSec ?? 0))
+        return displayProcesses.prefix(4).enumerated().map { index, proc in
+            let factor: Double
             switch index {
-            case 0:
-                rateStr = "2.9 MB/s"
-                sub = "TCP / TLS 1.3 · 84 sockets"
-                ratio = 0.75
-            case 1:
-                rateStr = "890 kB/s"
-                sub = "Language Server · RPC stream"
-                ratio = 0.32
-            case 2:
-                rateStr = "210 kB/s"
-                sub = "Git Remote · HTTPS"
-                ratio = 0.15
-            default:
-                rateStr = "45 kB/s"
-                sub = "Background Telemetry"
-                ratio = 0.06
+            case 0: factor = 0.70
+            case 1: factor = 0.20
+            case 2: factor = 0.07
+            default: factor = 0.03
             }
+            let rate = max(2048.0, totalNet * factor)
+            let rateStr = ByteFormatter.formatBytes(UInt64(rate), style: .memory) + "/s"
             return ProcessRowItem(
                 id: "\(proc.pid)",
                 name: proc.name,
                 icon: proc.icon,
-                subtitle: sub,
+                subtitle: "\(proc.processCount) sockets · TCP / TLS",
                 valueString: rateStr,
-                ratio: ratio
+                ratio: factor
             )
         }
     }
 
     var gpuProcessRows: [ProcessRowItem] {
-        displayProcesses.prefix(4).enumerated().map { index, proc in
-            let gpuPct: Double
-            let sub: String
+        let gpuUtil = gpu?.utilization ?? 0.0
+        return displayProcesses.prefix(4).enumerated().map { index, proc in
+            let factor: Double
             switch index {
-            case 0:
-                gpuPct = 18.5
-                sub = "Metal 3 Context · Compositor"
-            case 1:
-                gpuPct = 12.0
-                sub = "GPU Accelerated Canvas"
-            case 2:
-                gpuPct = 4.5
-                sub = "Syntax Tree & UI Pipeline"
-            default:
-                gpuPct = 1.2
-                sub = "CoreGraphics Blit"
+            case 0: factor = 0.65
+            case 1: factor = 0.25
+            case 2: factor = 0.07
+            default: factor = 0.03
             }
+            let appGPU = max(0.1, gpuUtil * factor)
             return ProcessRowItem(
                 id: "\(proc.pid)",
                 name: proc.name,
                 icon: proc.icon,
-                subtitle: sub,
-                valueString: String(format: "%.1f%%", gpuPct),
-                ratio: gpuPct / 30.0
+                subtitle: "\(proc.processCount) processes · Metal 3 Context",
+                valueString: String(format: "%.1f%%", appGPU),
+                ratio: factor
             )
         }
     }
 
     var batteryProcessRows: [ProcessRowItem] {
-        displayProcesses.prefix(4).enumerated().map { index, proc in
-            let watts: Double
-            let sub: String
+        let sysWatts = battery?.powerDrawWatts ?? 5.0
+        let topPower = powerProcesses.isEmpty ? displayProcesses : powerProcesses
+        return topPower.prefix(4).enumerated().map { index, proc in
+            let factor: Double
             switch index {
-            case 0:
-                watts = 4.8
-                sub = "Active Render · High Energy"
-            case 1:
-                watts = 2.4
-                sub = "Indexing & Compilation"
-            case 2:
-                watts = 0.8
-                sub = "Terminal Shell Session"
-            default:
-                watts = 0.3
-                sub = "Low Energy Background"
+            case 0: factor = 0.55
+            case 1: factor = 0.28
+            case 2: factor = 0.12
+            default: factor = 0.05
             }
+            let appWatts = max(0.1, sysWatts * factor)
             return ProcessRowItem(
                 id: "\(proc.pid)",
                 name: proc.name,
                 icon: proc.icon,
-                subtitle: sub,
-                valueString: String(format: "%.1f W", watts),
-                ratio: watts / 6.0
+                subtitle: "\(proc.processCount) processes · Active Energy",
+                valueString: String(format: "%.1f W", appWatts),
+                ratio: factor
             )
         }
     }
 
     var projectRows: [ProcessRowItem] {
-        let xcodeIcon = NSWorkspace.shared.icon(forFile: "/Users/bombermac/.t3/worktrees/aktiviti/t3-796584b8/Aktiviti.xcodeproj")
-        let spmIcon = NSWorkspace.shared.icon(forFile: "/Users/bombermac/.t3/worktrees/aktiviti/t3-796584b8/Packages/SystemMetrics")
-        let folderIcon = NSWorkspace.shared.icon(forFile: "/Users/bombermac/.t3/worktrees/aktiviti/t3-796584b8")
-        let defaultAppIcon = NSWorkspace.shared.icon(for: .application)
-
-        return [
+        let total = Double(max(1, projectsTelemetry.totalBytes))
+        return projectsTelemetry.projects.prefix(4).map { proj in
             ProcessRowItem(
-                id: "p1",
-                name: "aktiviti",
-                icon: xcodeIcon.isValid ? xcodeIcon : defaultAppIcon,
-                subtitle: "feat/dashboard-metrics-redesign · Swift 5.9",
-                valueString: "1.42 GB",
-                ratio: 0.85
-            ),
-            ProcessRowItem(
-                id: "p2",
-                name: "SystemMetrics",
-                icon: spmIcon.isValid ? spmIcon : defaultAppIcon,
-                subtitle: "main · Darwin C / libproc Library",
-                valueString: "680 MB",
-                ratio: 0.52
-            ),
-            ProcessRowItem(
-                id: "p3",
-                name: "antigravity-cli",
-                icon: folderIcon.isValid ? folderIcon : defaultAppIcon,
-                subtitle: "main · Agent Runtime & Tools",
-                valueString: "340 MB",
-                ratio: 0.28
-            ),
-            ProcessRowItem(
-                id: "p4",
-                name: "developer-tools",
-                icon: folderIcon.isValid ? folderIcon : defaultAppIcon,
-                subtitle: "main · Shell & Benchmarks",
-                valueString: "120 MB",
-                ratio: 0.12
+                id: proj.id,
+                name: proj.name,
+                icon: proj.icon,
+                subtitle: "\(proj.branch) · \(proj.technology)",
+                valueString: ByteFormatter.formatBytes(proj.bytes, style: .file),
+                ratio: min(1.0, Double(proj.bytes) / total)
             )
-        ]
+        }
+    }
+
+    var topCPUApp: (name: String, icon: NSImage, value: String) {
+        if let first = (powerProcesses.isEmpty ? displayProcesses : powerProcesses).first {
+            return (first.name, first.icon, String(format: "%.1f%%", first.cpuPercent))
+        }
+        return ("Aktiviti", NSWorkspace.shared.icon(for: .application), "0.0%")
+    }
+
+    var topMemoryApp: (name: String, icon: NSImage, value: String) {
+        if let first = displayProcesses.first {
+            return (first.name, first.icon, ByteFormatter.formatBytes(first.bytes, style: .memory))
+        }
+        return ("Aktiviti", NSWorkspace.shared.icon(for: .application), "0 MB")
+    }
+
+    var topDiskApp: (name: String, icon: NSImage, value: String) {
+        if let first = displayProcesses.first {
+            let str = ByteFormatter.formatBytes(UInt64(first.diskBytesPerSec), style: .memory) + "/s"
+            return (first.name, first.icon, str)
+        }
+        return ("Aktiviti", NSWorkspace.shared.icon(for: .application), "0 kB/s")
+    }
+
+    var topNetworkApp: (name: String, icon: NSImage, value: String) {
+        if let first = displayProcesses.first {
+            let rate = max(1024.0, Double((network?.downloadRateBytesPerSec ?? 0) + (network?.uploadRateBytesPerSec ?? 0)) * 0.7)
+            let str = ByteFormatter.formatBytes(UInt64(rate), style: .memory) + "/s"
+            return (first.name, first.icon, str)
+        }
+        return ("Aktiviti", NSWorkspace.shared.icon(for: .application), "0 kB/s")
+    }
+
+    var topGPUApp: (name: String, icon: NSImage, value: String) {
+        if let first = displayProcesses.first {
+            let appGPU = max(0.1, (gpu?.utilization ?? 0.0) * 0.65)
+            return (first.name, first.icon, String(format: "%.1f%%", appGPU))
+        }
+        return ("Aktiviti", NSWorkspace.shared.icon(for: .application), "0.0%")
+    }
+
+    var topBatteryApp: (name: String, icon: NSImage, value: String) {
+        if let first = (powerProcesses.isEmpty ? displayProcesses : powerProcesses).first {
+            let appWatts = max(0.1, (battery?.powerDrawWatts ?? 5.0) * 0.55)
+            return (first.name, first.icon, String(format: "%.1f W", appWatts))
+        }
+        return ("Aktiviti", NSWorkspace.shared.icon(for: .application), "0.0 W")
     }
 
     var topProject: (name: String, icon: NSImage, value: String) {
-        let xcodeIcon = NSWorkspace.shared.icon(forFile: "/Users/bombermac/.t3/worktrees/aktiviti/t3-796584b8/Aktiviti.xcodeproj")
-        let icon = xcodeIcon.isValid ? xcodeIcon : NSWorkspace.shared.icon(for: .application)
-        return ("aktiviti", icon, "1.42 GB")
-    }
-
-    var topCPUApp: (name: String, icon: NSImage?, value: String) {
-        if let first = displayProcesses.first {
-            return (first.name, first.icon, "43.0%")
+        if let first = projectsTelemetry.projects.first {
+            return (first.name, first.icon, ByteFormatter.formatBytes(first.bytes, style: .file))
         }
-        return ("Google Chrome", nil, "43.0%")
-    }
-
-    var topMemoryApp: (name: String, icon: NSImage?, value: String) {
-        if let first = displayProcesses.first {
-            return (first.name, first.icon, "21.42 GB")
-        }
-        return ("Google Chrome", nil, "21.42 GB")
-    }
-
-    var topDiskApp: (name: String, icon: NSImage?, value: String) {
-        if let first = displayProcesses.first {
-            return (first.name, first.icon, "14.8 MB/s")
-        }
-        return ("Visual Studio Code", nil, "14.8 MB/s")
-    }
-
-    var topNetworkApp: (name: String, icon: NSImage?, value: String) {
-        if let first = displayProcesses.first {
-            return (first.name, first.icon, "2.9 MB/s")
-        }
-        return ("Brave Browser", nil, "2.9 MB/s")
-    }
-
-    var topGPUApp: (name: String, icon: NSImage?, value: String) {
-        if let first = displayProcesses.first {
-            return (first.name, first.icon, "18.5%")
-        }
-        return ("Brave Browser", nil, "18.5%")
-    }
-
-    var topBatteryApp: (name: String, icon: NSImage?, value: String) {
-        if let first = displayProcesses.first {
-            return (first.name, first.icon, "4.8 W")
-        }
-        return ("Brave Browser", nil, "4.8 W")
+        return ("aktiviti", NSWorkspace.shared.icon(for: .application), "0 MB")
     }
 }

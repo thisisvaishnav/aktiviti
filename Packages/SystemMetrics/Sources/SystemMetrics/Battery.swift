@@ -1,5 +1,6 @@
 import Foundation
 import IOKit.ps
+import IOKit
 
 /// Snapshot of battery and power metrics.
 public struct BatteryMetrics: Sendable, Equatable {
@@ -10,6 +11,9 @@ public struct BatteryMetrics: Sendable, Equatable {
     public let powerDrawWatts: Double
     public let healthPercent: Double
     public let stateDescription: String
+    public let cycleCount: Int
+    public let adapterWatts: Int?
+    public let adapterName: String?
 
     public init(
         percent: Double,
@@ -18,7 +22,10 @@ public struct BatteryMetrics: Sendable, Equatable {
         timeRemainingMinutes: Int?,
         powerDrawWatts: Double,
         healthPercent: Double,
-        stateDescription: String
+        stateDescription: String,
+        cycleCount: Int = 0,
+        adapterWatts: Int? = nil,
+        adapterName: String? = nil
     ) {
         self.percent = percent
         self.isCharging = isCharging
@@ -27,12 +34,49 @@ public struct BatteryMetrics: Sendable, Equatable {
         self.powerDrawWatts = powerDrawWatts
         self.healthPercent = healthPercent
         self.stateDescription = stateDescription
+        self.cycleCount = cycleCount
+        self.adapterWatts = adapterWatts
+        self.adapterName = adapterName
     }
 }
 
-/// Reads power and battery status via IOKit.ps.
+/// Reads power and battery status via IOKit.ps and AppleSmartBattery.
 public enum BatteryReader {
     public static func read() -> BatteryMetrics {
+        var cycleCount = 0
+        var smartHealth = 100.0
+        var smartPowerWatts = 0.0
+        var smartAdapterWatts: Int? = nil
+        var smartAdapterName: String? = nil
+
+        // Query AppleSmartBattery for authentic hardware diagnostics
+        let match = IOServiceMatching("AppleSmartBattery")
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, match)
+        if service != 0 {
+            var props: Unmanaged<CFMutableDictionary>?
+            if IORegistryEntryCreateCFProperties(service, &props, kCFAllocatorDefault, 0) == KERN_SUCCESS,
+               let dict = props?.takeRetainedValue() as? [String: Any] {
+                cycleCount = dict["CycleCount"] as? Int ?? 0
+
+                if let bData = dict["BatteryData"] as? [String: Any],
+                   let full = bData["FullChargeCapacity"] as? Double,
+                   let design = bData["DesignCapacity"] as? Double, design > 0 {
+                    smartHealth = (full / design) * 100.0
+                }
+
+                if let telem = dict["PowerTelemetryData"] as? [String: Any],
+                   let loadMW = telem["SystemLoad"] as? Double, loadMW > 0 {
+                    smartPowerWatts = loadMW / 1000.0
+                }
+
+                if let ad = dict["AdapterDetails"] as? [String: Any] {
+                    smartAdapterWatts = ad["Watts"] as? Int
+                    smartAdapterName = ad["Name"] as? String
+                }
+            }
+            IOObjectRelease(service)
+        }
+
         guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
               let sources = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() as? [CFTypeRef],
               !sources.isEmpty else {
@@ -42,9 +86,12 @@ public enum BatteryReader {
                 isCharging: false,
                 isPluggedIn: true,
                 timeRemainingMinutes: nil,
-                powerDrawWatts: 15.0,
-                healthPercent: 100.0,
-                stateDescription: "Power Adapter"
+                powerDrawWatts: smartPowerWatts > 0 ? smartPowerWatts : 15.0,
+                healthPercent: smartHealth,
+                stateDescription: "Power Adapter",
+                cycleCount: cycleCount,
+                adapterWatts: smartAdapterWatts,
+                adapterName: smartAdapterName
             )
         }
 
@@ -66,13 +113,14 @@ public enum BatteryReader {
                     }
                 }
 
-                // Voltage in mV, Amperage in mA
-                var powerWatts = 0.0
-                if let volt = desc["Voltage"] as? NSNumber, let amp = desc["Current - Amperage"] as? NSNumber {
-                    powerWatts = abs(volt.doubleValue * amp.doubleValue) / 1_000_000.0
+                var powerWatts = smartPowerWatts
+                if powerWatts <= 0.1 {
+                    if let volt = desc["Voltage"] as? NSNumber, let amp = desc["Current - Amperage"] as? NSNumber {
+                        powerWatts = abs(volt.doubleValue * amp.doubleValue) / 1_000_000.0
+                    }
                 }
                 if powerWatts <= 0.1 {
-                    powerWatts = isPluggedIn ? 5.2 : 21.2
+                    powerWatts = isPluggedIn ? 5.2 : 12.0
                 }
 
                 let stateDesc: String
@@ -90,8 +138,11 @@ public enum BatteryReader {
                     isPluggedIn: isPluggedIn,
                     timeRemainingMinutes: timeRemaining,
                     powerDrawWatts: powerWatts,
-                    healthPercent: 88.0, // Healthy battery condition
-                    stateDescription: stateDesc
+                    healthPercent: smartHealth,
+                    stateDescription: stateDesc,
+                    cycleCount: cycleCount,
+                    adapterWatts: smartAdapterWatts,
+                    adapterName: smartAdapterName
                 )
             }
         }
@@ -101,9 +152,12 @@ public enum BatteryReader {
             isCharging: false,
             isPluggedIn: true,
             timeRemainingMinutes: nil,
-            powerDrawWatts: 15.0,
-            healthPercent: 100.0,
-            stateDescription: "Power Adapter"
+            powerDrawWatts: smartPowerWatts > 0 ? smartPowerWatts : 15.0,
+            healthPercent: smartHealth,
+            stateDescription: "Power Adapter",
+            cycleCount: cycleCount,
+            adapterWatts: smartAdapterWatts,
+            adapterName: smartAdapterName
         )
     }
 }

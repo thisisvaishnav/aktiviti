@@ -52,6 +52,7 @@ public struct SystemSnapshot: Sendable, Equatable {
         gpuSampler: GPUSampler? = nil,
         networkSampler: NetworkSampler? = nil,
         diskSampler: DiskSampler? = nil,
+        processSampler: ProcessSampler? = nil,
         topProcessLimit: Int = 10,
         cachedDisk: DiskMetrics? = nil
     ) -> SystemSnapshot {
@@ -61,8 +62,17 @@ public struct SystemSnapshot: Sendable, Equatable {
         let gpu = gpuSampler?.sample()
         let network = networkSampler?.sample()
         let battery = BatteryReader.read()
-        let processes = ProcessReader.readTopProcesses(limit: topProcessLimit)
-        let powerProcs = ProcessReader.readTopPowerProcesses(limit: 5)
+        
+        let processes: [ProcessMetrics]
+        let powerProcs: [ProcessMetrics]
+        if let ps = processSampler {
+            let res = ps.sample(limit: topProcessLimit)
+            processes = res.memory
+            powerProcs = res.power
+        } else {
+            processes = ProcessReader.readTopProcesses(limit: topProcessLimit)
+            powerProcs = ProcessReader.readTopPowerProcesses(limit: 5)
+        }
 
         return SystemSnapshot(
             cpu: cpu,
@@ -88,16 +98,12 @@ public struct SystemSnapshot: Sendable, Equatable {
         let disk = cachedDisk ?? DiskReader.read()
         let processes = ProcessReader.readTopProcesses(limit: topProcessLimit)
         let powerProcs = ProcessReader.readTopPowerProcesses(limit: 5)
-        let battery = BatteryReader.read()
 
         return SystemSnapshot(
             cpu: cpu,
             ram: ram,
             disk: disk,
             topProcesses: processes,
-            gpu: nil,
-            network: nil,
-            battery: battery,
             topPowerProcesses: powerProcs
         )
     }

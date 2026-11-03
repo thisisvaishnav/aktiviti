@@ -10,7 +10,7 @@ struct MemoryTabView: View {
     }
 
     private var totalBytes: UInt64 {
-        viewModel.ram?.totalBytes ?? (64 * 1024 * 1024 * 1024)
+        viewModel.ram?.totalBytes ?? UInt64(ProcessInfo.processInfo.physicalMemory)
     }
 
     private var totalGBText: String {
@@ -23,7 +23,7 @@ struct MemoryTabView: View {
             let usedGB = Double(r.usedBytes) / (1024 * 1024 * 1024)
             return String(format: "%.2f", usedGB)
         }
-        return "52.56"
+        return "0.00"
     }
 
     private var freeGBText: String {
@@ -31,7 +31,7 @@ struct MemoryTabView: View {
             let freeGB = Double(r.freeBytes) / (1024 * 1024 * 1024)
             return String(format: "%.2f GB", freeGB)
         }
-        return "11.44 GB"
+        return "0.00 GB"
     }
 
     private var swapText: String {
@@ -42,45 +42,57 @@ struct MemoryTabView: View {
     }
 
     private var appGBText: String {
-        if let r = viewModel.ram, r.appBytes > 0 {
+        if let r = viewModel.ram {
             return ByteFormatter.formatBytes(r.appBytes, style: .memory)
         }
-        return "23.32 GB"
+        return "0 GB"
     }
 
     private var wiredGBText: String {
-        if let r = viewModel.ram, r.wiredBytes > 0 {
+        if let r = viewModel.ram {
             return ByteFormatter.formatBytes(r.wiredBytes, style: .memory)
         }
-        return "5.37 GB"
+        return "0 GB"
     }
 
     private var compressedGBText: String {
-        if let r = viewModel.ram, r.compressedBytes > 0 {
+        if let r = viewModel.ram {
             return ByteFormatter.formatBytes(r.compressedBytes, style: .memory)
         }
-        return "23.87 GB"
+        return "0 GB"
     }
 
     private var appRatio: Double {
         if let r = viewModel.ram, r.totalBytes > 0 {
             return Double(r.appBytes) / Double(r.totalBytes)
         }
-        return 0.36
+        return 0.0
     }
 
     private var wiredRatio: Double {
         if let r = viewModel.ram, r.totalBytes > 0 {
             return Double(r.wiredBytes) / Double(r.totalBytes)
         }
-        return 0.08
+        return 0.0
     }
 
     private var compressedRatio: Double {
         if let r = viewModel.ram, r.totalBytes > 0 {
             return Double(r.compressedBytes) / Double(r.totalBytes)
         }
-        return 0.37
+        return 0.0
+    }
+
+    private var memoryPressureBadge: (text: String, isNormal: Bool) {
+        if let r = viewModel.ram {
+            switch r.pressureLevel {
+            case .normal: return ("Normal", true)
+            case .warning: return ("Pressure: Warning", false)
+            case .critical: return ("Pressure: Critical", false)
+            case .unknown: return ("Normal", true)
+            }
+        }
+        return ("Normal", true)
     }
 
     var body: some View {
@@ -90,7 +102,7 @@ struct MemoryTabView: View {
                 caption: "In use of \(totalGBText)",
                 mainValue: usedGBText,
                 unit: "GB",
-                statusBadge: (text: "Normal", isNormal: true),
+                statusBadge: memoryPressureBadge,
                 statRow1: (label: "Free", value: freeGBText),
                 statRow2: (label: "Swap", value: swapText),
                 chartData: viewModel.memoryHistory,

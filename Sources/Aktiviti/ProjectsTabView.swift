@@ -12,14 +12,14 @@ struct ProjectsTabView: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            // 1. Hero Card
+            // 1. Hero Card: Workspaces, Footprint, and Git Status
             TabHeroCardView(
                 caption: "Active Workspaces",
-                mainValue: "4",
+                mainValue: viewModel.projectCountText,
                 unit: "Projects",
                 statusBadge: (text: "All Synced", isNormal: true),
-                statRow1: (label: "Total Footprint", value: "2.56 GB"),
-                statRow2: (label: "Git Status", value: "Clean Working Tree"),
+                statRow1: (label: "Total Footprint", value: viewModel.totalProjectFootprintText),
+                statRow2: (label: "Git Status", value: viewModel.isGitStatusClean ? "Clean Working Tree" : "Modified Files"),
                 chartData: viewModel.cpuHistory,
                 chartTint: projectTint,
                 chartMax: 100.0
@@ -30,7 +30,7 @@ struct ProjectsTabView: View {
                 TabSubcardView(
                     title: "Repositories",
                     icon: "folder.fill",
-                    value: "4 Repos",
+                    value: "\(viewModel.projectCountText) Repos",
                     tint: projectTint,
                     style: .standard(subtitle: "Local Git Workspaces")
                 )
@@ -40,15 +40,15 @@ struct ProjectsTabView: View {
                     icon: "hammer.fill",
                     value: "Ready",
                     tint: projectTint,
-                    style: .standard(subtitle: "swiftc / clang / xcodebuild")
+                    style: .standard(subtitle: viewModel.buildSystemSummary)
                 )
 
                 TabSubcardView(
                     title: "DerivedData Cache",
                     icon: "internaldrive.fill",
-                    value: "3.84 GB",
+                    value: viewModel.derivedDataText,
                     tint: projectTint,
-                    style: .progress(ratio: 0.38)
+                    style: .progress(ratio: viewModel.derivedDataRatio)
                 )
 
                 TabSubcardView(

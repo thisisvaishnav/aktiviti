@@ -11,29 +11,37 @@ struct CPUTabView: View {
     }
 
     private var currentUsage: Double {
-        viewModel.cpu?.totalUsage ?? 23.0
+        viewModel.cpu?.totalUsage ?? 0.0
+    }
+
+    private var averageUsage: Double {
+        if !viewModel.cpuHistory.isEmpty {
+            return viewModel.cpuHistory.reduce(0.0, +) / Double(viewModel.cpuHistory.count)
+        }
+        return currentUsage
     }
 
     private var userUsage: Double {
-        viewModel.cpu?.userUsage ?? 16.0
+        viewModel.cpu?.userUsage ?? 0.0
     }
 
     private var systemUsage: Double {
-        viewModel.cpu?.systemUsage ?? 7.0
+        viewModel.cpu?.systemUsage ?? 0.0
     }
 
     private var coreTopology: (total: Int, p: Int, e: Int) {
         if let top = viewModel.cpu?.topology {
             return (top.totalCores, top.performanceCores, top.efficiencyCores)
         }
-        return (12, 8, 4)
+        let count = ProcessInfo.processInfo.activeProcessorCount
+        return (count, max(1, count / 2), max(1, count / 2))
     }
 
     private var loadAvgString: String {
         if let cpu = viewModel.cpu {
             return String(format: "%.2f", cpu.loadAverages.0)
         }
-        return "2.51"
+        return "0.00"
     }
 
     var body: some View {
@@ -43,7 +51,7 @@ struct CPUTabView: View {
                 caption: "Now",
                 mainValue: String(format: "%.0f", currentUsage),
                 unit: "%",
-                statRow1: (label: "Average today", value: "40%"),
+                statRow1: (label: "Average today", value: String(format: "%.0f%%", averageUsage)),
                 statRow2: (label: "Load", value: loadAvgString),
                 chartData: viewModel.cpuHistory,
                 chartTint: cpuTint,
@@ -55,7 +63,7 @@ struct CPUTabView: View {
                 TabSubcardView(
                     title: "User",
                     icon: "asterisk",
-                    value: String(format: "%.0f%%", userUsage > 0 ? userUsage : 16.0),
+                    value: String(format: "%.0f%%", userUsage),
                     tint: cpuTint,
                     style: .standard(subtitle: "Your apps")
                 )
@@ -63,7 +71,7 @@ struct CPUTabView: View {
                 TabSubcardView(
                     title: "System",
                     icon: "gearshape.fill",
-                    value: String(format: "%.0f%%", systemUsage > 0 ? systemUsage : 7.0),
+                    value: String(format: "%.0f%%", systemUsage),
                     tint: cpuTint,
                     style: .standard(subtitle: "macOS")
                 )

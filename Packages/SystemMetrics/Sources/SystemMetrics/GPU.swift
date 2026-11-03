@@ -9,6 +9,7 @@ public struct GPUMetrics: Sendable, Equatable {
     public let allocatedMemoryBytes: UInt64
     public let averageUtilization: Double
     public let peakUtilization: Double
+    public let coreCount: Int
 
     public init(
         deviceName: String,
@@ -16,7 +17,8 @@ public struct GPUMetrics: Sendable, Equatable {
         inUseMemoryBytes: UInt64,
         allocatedMemoryBytes: UInt64,
         averageUtilization: Double,
-        peakUtilization: Double
+        peakUtilization: Double,
+        coreCount: Int = 0
     ) {
         self.deviceName = deviceName
         self.utilization = utilization
@@ -24,6 +26,7 @@ public struct GPUMetrics: Sendable, Equatable {
         self.allocatedMemoryBytes = allocatedMemoryBytes
         self.averageUtilization = averageUtilization
         self.peakUtilization = peakUtilization
+        self.coreCount = coreCount
     }
 }
 
@@ -45,6 +48,7 @@ public final class GPUSampler: @unchecked Sendable {
         var currentUtil: Double = 0.0
         var inUseMem: UInt64 = 0
         var allocMem: UInt64 = 0
+        var coreCount = 0
 
         let matching = IOServiceMatching("IOAccelerator")
         var iterator: io_iterator_t = 0
@@ -53,16 +57,20 @@ public final class GPUSampler: @unchecked Sendable {
             while service != 0 {
                 var props: Unmanaged<CFMutableDictionary>?
                 if IORegistryEntryCreateCFProperties(service, &props, kCFAllocatorDefault, 0) == kIOReturnSuccess,
-                   let dict = props?.takeRetainedValue() as? [String: Any],
-                   let stats = dict["PerformanceStatistics"] as? [String: Any] {
-                    if let util = stats["Device Utilization %"] as? NSNumber {
-                        currentUtil = max(currentUtil, util.doubleValue)
+                   let dict = props?.takeRetainedValue() as? [String: Any] {
+                    if let c = dict["gpu-core-count"] as? Int {
+                        coreCount = max(coreCount, c)
                     }
-                    if let mem = stats["In use system memory"] as? NSNumber {
-                        inUseMem = max(inUseMem, mem.uint64Value)
-                    }
-                    if let alloc = stats["Alloc system memory"] as? NSNumber {
-                        allocMem = max(allocMem, alloc.uint64Value)
+                    if let stats = dict["PerformanceStatistics"] as? [String: Any] {
+                        if let util = stats["Device Utilization %"] as? NSNumber {
+                            currentUtil = max(currentUtil, util.doubleValue)
+                        }
+                        if let mem = stats["In use system memory"] as? NSNumber {
+                            inUseMem = max(inUseMem, mem.uint64Value)
+                        }
+                        if let alloc = stats["Alloc system memory"] as? NSNumber {
+                            allocMem = max(allocMem, alloc.uint64Value)
+                        }
                     }
                 }
                 IOObjectRelease(service)
@@ -84,7 +92,8 @@ public final class GPUSampler: @unchecked Sendable {
             inUseMemoryBytes: inUseMem,
             allocatedMemoryBytes: allocMem,
             averageUtilization: avg,
-            peakUtilization: peak
+            peakUtilization: peak,
+            coreCount: coreCount
         )
     }
 
