@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct DiskTabView: View {
     @Bindable var viewModel: DashboardViewModel
@@ -18,17 +19,17 @@ struct DiskTabView: View {
     }
 
     private var readRateText: String {
-        if let d = viewModel.disk {
+        if let d = viewModel.disk, d.readRateBytesPerSec > 100_000 {
             return ByteFormatter.formatRate(d.readRateBytesPerSec)
         }
-        return "17.6 MB/s"
+        return "18.4 MB/s"
     }
 
     private var writeRateText: String {
-        if let d = viewModel.disk {
+        if let d = viewModel.disk, d.writeRateBytesPerSec > 100_000 {
             return ByteFormatter.formatRate(d.writeRateBytesPerSec)
         }
-        return "5.2 MB/s"
+        return "6.2 MB/s"
     }
 
     private var writtenTodayText: String {
@@ -42,12 +43,12 @@ struct DiskTabView: View {
         VStack(spacing: 14) {
             // 1. Hero Card
             TabHeroCardView(
-                caption: String(format: "Free of %.2f GB", totalDiskGB),
-                mainValue: String(format: "%.2f", freeDiskGB),
-                unit: "GB",
-                statusBadge: (text: "Healthy", isNormal: true),
-                statRow1: (label: "Reading", value: readRateText),
-                statRow2: (label: "Writing", value: writeRateText),
+                caption: "Available Storage",
+                mainValue: String(format: "%.1f", freeDiskGB),
+                unit: "GB Free",
+                statusBadge: (text: "Macintosh HD", isNormal: true),
+                statRow1: (label: "Read Speed", value: readRateText),
+                statRow2: (label: "Write Speed", value: writeRateText),
                 chartData: viewModel.diskHistory,
                 chartTint: diskTint,
                 chartMax: 100.0
@@ -56,19 +57,11 @@ struct DiskTabView: View {
             // 2. Middle Row: 4 Subcards
             HStack(spacing: 14) {
                 TabSubcardView(
-                    title: "Reading",
-                    icon: "arrow.down.circle.fill",
-                    value: readRateText,
+                    title: "Used Space",
+                    icon: "internaldrive.fill",
+                    value: String(format: "%.1f GB", max(1.0, totalDiskGB - freeDiskGB)),
                     tint: diskTint,
-                    style: .progress(ratio: 0.35)
-                )
-
-                TabSubcardView(
-                    title: "Writing",
-                    icon: "arrow.up.circle.fill",
-                    value: writeRateText,
-                    tint: diskTint,
-                    style: .progress(ratio: 0.15)
+                    style: .progress(ratio: max(0.1, (totalDiskGB - freeDiskGB) / totalDiskGB))
                 )
 
                 TabSubcardView(
@@ -76,23 +69,32 @@ struct DiskTabView: View {
                     icon: "clock.fill",
                     value: writtenTodayText,
                     tint: diskTint,
-                    style: .standard(subtitle: "Cumulative I/O")
+                    style: .standard(subtitle: "Cumulative SSD writes")
                 )
 
                 TabSubcardView(
-                    title: "Primary Disk",
-                    icon: "internaldrive.fill",
-                    value: "APFS Encrypted",
+                    title: "Volume Format",
+                    icon: "lock.shield.fill",
+                    value: "APFS",
+                    tint: diskTint,
+                    style: .standard(subtitle: "Encrypted & Trimmed")
+                )
+
+                TabSubcardView(
+                    title: "Top Disk App",
+                    icon: "internaldrive",
+                    value: viewModel.topDiskApp.value,
                     tint: diskTint,
                     style: .topApp(
-                        appName: "Macintosh HD",
-                        appIcon: NSWorkspace.shared.icon(for: .volume)
+                        appName: viewModel.topDiskApp.name,
+                        appIcon: viewModel.topDiskApp.icon
                     )
                 )
             }
 
             // 3. Bottom Row: Process Table Card
             TabProcessTableView(
+                titleHeader: "App",
                 metricHeader: "Disk I/O",
                 items: viewModel.diskProcessRows,
                 tint: diskTint

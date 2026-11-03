@@ -14,28 +14,28 @@ struct GPUTabView: View {
     }
 
     private var modelName: String {
-        viewModel.gpu?.deviceName ?? "Apple M2"
+        viewModel.gpu?.deviceName ?? "Apple M2 GPU"
     }
 
     private var memAllocText: String {
         if let g = viewModel.gpu {
             return ByteFormatter.formatBytes(g.allocatedMemoryBytes, style: .memory)
         }
-        return "0.50 GB"
+        return "1.40 GB"
     }
 
     private var avgUtilText: String {
         if let g = viewModel.gpu {
             return String(format: "%.0f%%", g.averageUtilization)
         }
-        return "4%"
+        return "14%"
     }
 
     private var peakUtilText: String {
         if let g = viewModel.gpu {
             return String(format: "%.0f%%", g.peakUtilization)
         }
-        return "18%"
+        return "48%"
     }
 
     var body: some View {
@@ -45,8 +45,9 @@ struct GPUTabView: View {
                 caption: modelName,
                 mainValue: String(format: "%.0f", gpuUtil),
                 unit: "%",
-                statRow1: (label: "Average", value: avgUtilText),
-                statRow2: (label: "Peak", value: peakUtilText),
+                statusBadge: (text: "10 GPU Cores", isNormal: true),
+                statRow1: (label: "Allocated VRAM", value: memAllocText),
+                statRow2: (label: "Peak Today", value: peakUtilText),
                 chartData: viewModel.gpuHistory,
                 chartTint: gpuTint,
                 chartMax: 100.0
@@ -55,7 +56,7 @@ struct GPUTabView: View {
             // 2. Middle Row: 4 Subcards
             HStack(spacing: 14) {
                 TabSubcardView(
-                    title: "Utilization",
+                    title: "GPU Load",
                     icon: "square.stack.3d.up.fill",
                     value: String(format: "%.0f%%", gpuUtil),
                     tint: gpuTint,
@@ -63,36 +64,37 @@ struct GPUTabView: View {
                 )
 
                 TabSubcardView(
-                    title: "Allocated RAM",
+                    title: "VRAM Footprint",
                     icon: "memorychip.fill",
                     value: memAllocText,
                     tint: gpuTint,
-                    style: .progress(ratio: 0.28)
+                    style: .standard(subtitle: "Unified memory pool")
                 )
 
                 TabSubcardView(
-                    title: "Engine",
+                    title: "Metal Engine",
                     icon: "cpu.fill",
-                    value: "Apple Silicon",
+                    value: "Metal 3",
                     tint: gpuTint,
-                    style: .standard(subtitle: "Metal 3 Hardware Accel")
+                    style: .standard(subtitle: "Hardware Acceleration")
                 )
 
                 TabSubcardView(
-                    title: "Top App",
+                    title: "Top GPU App",
                     icon: "square.grid.2x2.fill",
-                    value: "54.0%",
+                    value: viewModel.topGPUApp.value,
                     tint: gpuTint,
                     style: .topApp(
-                        appName: viewModel.topCPUApp.name,
-                        appIcon: viewModel.topCPUApp.icon
+                        appName: viewModel.topGPUApp.name,
+                        appIcon: viewModel.topGPUApp.icon
                     )
                 )
             }
 
             // 3. Bottom Row: Process Table Card
             TabProcessTableView(
-                metricHeader: "GPU",
+                titleHeader: "App",
+                metricHeader: "GPU Load",
                 items: viewModel.gpuProcessRows,
                 tint: gpuTint
             )

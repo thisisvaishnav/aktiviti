@@ -265,13 +265,13 @@ struct TabSubcardView: View {
     }
 }
 
-// MARK: - Process Table Card
+// MARK: - Process / Project Table Card
 
 struct ProcessRowItem: Identifiable, Sendable {
     let id: String
     let name: String
     let icon: NSImage
-    let processCount: Int
+    let subtitle: String
     let valueString: String
     let ratio: Double
 
@@ -279,27 +279,29 @@ struct ProcessRowItem: Identifiable, Sendable {
         id: String,
         name: String,
         icon: NSImage,
-        processCount: Int,
+        subtitle: String,
         valueString: String,
         ratio: Double
     ) {
         self.id = id
         self.name = name
         self.icon = icon
-        self.processCount = processCount
+        self.subtitle = subtitle
         self.valueString = valueString
         self.ratio = ratio
     }
 }
 
 struct TabProcessTableView: View {
+    let titleHeader: String
     let metricHeader: String
     let items: [ProcessRowItem]
     let tint: Color
 
     private let cardBackground = Color(red: 242/255, green: 242/255, blue: 245/255)
 
-    init(metricHeader: String, items: [ProcessRowItem], tint: Color) {
+    init(titleHeader: String = "App", metricHeader: String, items: [ProcessRowItem], tint: Color) {
+        self.titleHeader = titleHeader
         self.metricHeader = metricHeader
         self.items = items
         self.tint = tint
@@ -309,7 +311,7 @@ struct TabProcessTableView: View {
         VStack(spacing: 0) {
             // Header Row
             HStack {
-                Text("App")
+                Text(titleHeader)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Color(red: 113/255, green: 113/255, blue: 122/255))
                 Spacer()
@@ -339,7 +341,7 @@ struct TabProcessTableView: View {
                             Text(item.name)
                                 .font(.system(size: 13, weight: .bold))
                                 .foregroundStyle(Color(red: 20/255, green: 20/255, blue: 24/255))
-                            Text("\(item.processCount) processes")
+                            Text(item.subtitle)
                                 .font(.system(size: 11, weight: .regular))
                                 .foregroundStyle(Color(red: 142/255, green: 142/255, blue: 147/255))
                         }

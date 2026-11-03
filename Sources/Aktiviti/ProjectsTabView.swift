@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct ProjectsTabView: View {
     @Bindable var viewModel: DashboardViewModel
@@ -14,11 +15,11 @@ struct ProjectsTabView: View {
             // 1. Hero Card
             TabHeroCardView(
                 caption: "Active Workspaces",
-                mainValue: "3",
+                mainValue: "4",
                 unit: "Projects",
-                statusBadge: (text: "Clean", isNormal: true),
-                statRow1: (label: "Dev Footprint", value: "1.42 GB"),
-                statRow2: (label: "Git Status", value: "Up to Date"),
+                statusBadge: (text: "All Synced", isNormal: true),
+                statRow1: (label: "Total Footprint", value: "2.56 GB"),
+                statRow2: (label: "Git Status", value: "Clean Working Tree"),
                 chartData: viewModel.cpuHistory,
                 chartTint: projectTint,
                 chartMax: 100.0
@@ -27,45 +28,46 @@ struct ProjectsTabView: View {
             // 2. Middle Row: 4 Subcards
             HStack(spacing: 14) {
                 TabSubcardView(
-                    title: "Active Repo",
+                    title: "Repositories",
                     icon: "folder.fill",
-                    value: "aktiviti",
+                    value: "4 Repos",
                     tint: projectTint,
-                    style: .standard(subtitle: "Swift 5.9 / macOS 14+")
+                    style: .standard(subtitle: "Local Git Workspaces")
                 )
 
                 TabSubcardView(
-                    title: "Compilers",
+                    title: "Build Systems",
                     icon: "hammer.fill",
-                    value: "Idle",
+                    value: "Ready",
                     tint: projectTint,
-                    style: .standard(subtitle: "swift-frontend")
+                    style: .standard(subtitle: "swiftc / clang / xcodebuild")
                 )
 
                 TabSubcardView(
-                    title: "Memory",
-                    icon: "memorychip.fill",
-                    value: "1.42 GB",
+                    title: "DerivedData Cache",
+                    icon: "internaldrive.fill",
+                    value: "3.84 GB",
                     tint: projectTint,
-                    style: .progress(ratio: 0.18)
+                    style: .progress(ratio: 0.38)
                 )
 
                 TabSubcardView(
-                    title: "Primary Editor",
+                    title: "Active Project",
                     icon: "chevron.left.forwardslash.chevron.right",
-                    value: "Xcode",
+                    value: viewModel.topProject.value,
                     tint: projectTint,
                     style: .topApp(
-                        appName: "Xcode",
-                        appIcon: NSWorkspace.shared.icon(for: .application)
+                        appName: viewModel.topProject.name,
+                        appIcon: viewModel.topProject.icon
                     )
                 )
             }
 
-            // 3. Bottom Row: Process Table Card
+            // 3. Bottom Row: Process / Project Table Card
             TabProcessTableView(
-                metricHeader: "Dev Impact",
-                items: viewModel.cpuProcessRows,
+                titleHeader: "Project",
+                metricHeader: "Dev Footprint",
+                items: viewModel.projectRows,
                 tint: projectTint
             )
         }

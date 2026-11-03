@@ -14,15 +14,19 @@ struct BatteryTabView: View {
     }
 
     private var isCharging: Bool {
-        viewModel.battery?.isCharging ?? true
+        viewModel.battery?.isCharging ?? false
+    }
+
+    private var isPluggedIn: Bool {
+        viewModel.battery?.isPluggedIn ?? true
     }
 
     private var powerDrawWatts: Double {
-        viewModel.battery?.powerDrawWatts ?? 5.2
+        viewModel.battery?.powerDrawWatts ?? 12.8
     }
 
     private var healthPercent: Int {
-        Int(viewModel.battery?.healthPercent ?? 88.0)
+        Int(viewModel.battery?.healthPercent ?? 98.0)
     }
 
     private var cycleCount: Int {
@@ -33,15 +37,15 @@ struct BatteryTabView: View {
         VStack(spacing: 14) {
             // 1. Hero Card
             TabHeroCardView(
-                caption: "Battery",
+                caption: "Battery Level",
                 mainValue: "\(percent)",
                 unit: "%",
                 statusBadge: (
-                    text: isCharging ? "Power Adapter" : "On Battery",
+                    text: isCharging ? "Charging" : (isPluggedIn ? "Fully Charged" : "On Battery"),
                     isNormal: true
                 ),
-                statRow1: (label: "Remaining", value: isCharging ? "AC Power" : "4h 22m"),
-                statRow2: (label: "Health", value: "\(healthPercent)%"),
+                statRow1: (label: "Power State", value: isPluggedIn ? "AC Power" : "Discharging"),
+                statRow2: (label: "System Draw", value: String(format: "%.1f W", powerDrawWatts)),
                 chartData: viewModel.batteryHistory,
                 chartTint: batteryTint,
                 chartMax: 100.0
@@ -50,15 +54,15 @@ struct BatteryTabView: View {
             // 2. Middle Row: 4 Subcards
             HStack(spacing: 14) {
                 TabSubcardView(
-                    title: "Power Draw",
-                    icon: "bolt.fill",
-                    value: String(format: "%.1f W", powerDrawWatts),
+                    title: "Power Source",
+                    icon: "powerplug.fill",
+                    value: isPluggedIn ? "AC Adapter" : "Battery",
                     tint: batteryTint,
-                    style: .progress(ratio: min(1.0, powerDrawWatts / 30.0))
+                    style: .standard(subtitle: isPluggedIn ? "MagSafe 3 Connected" : "Internal Battery")
                 )
 
                 TabSubcardView(
-                    title: "Health",
+                    title: "Battery Health",
                     icon: "heart.fill",
                     value: "\(healthPercent)%",
                     tint: batteryTint,
@@ -75,19 +79,20 @@ struct BatteryTabView: View {
 
                 TabSubcardView(
                     title: "Top Consumer",
-                    icon: "square.grid.2x2.fill",
-                    value: "427 mW",
+                    icon: "bolt.fill",
+                    value: viewModel.topBatteryApp.value,
                     tint: batteryTint,
                     style: .topApp(
-                        appName: viewModel.topCPUApp.name,
-                        appIcon: viewModel.topCPUApp.icon
+                        appName: viewModel.topBatteryApp.name,
+                        appIcon: viewModel.topBatteryApp.icon
                     )
                 )
             }
 
             // 3. Bottom Row: Process Table Card
             TabProcessTableView(
-                metricHeader: "Power",
+                titleHeader: "App",
+                metricHeader: "Power Impact",
                 items: viewModel.batteryProcessRows,
                 tint: batteryTint
             )
