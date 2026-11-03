@@ -27,6 +27,14 @@ enum ByteFormatter {
         memoryFormatter.string(fromByteCount: bytes)
     }
 
+    static func formatBytes(_ bytes: UInt64, style: ByteCountFormatter.CountStyle = .file) -> String {
+        if style == .memory {
+            return memoryFormatter.string(fromByteCount: Int64(bytes))
+        } else {
+            return storageFormatter.string(fromByteCount: Int64(bytes))
+        }
+    }
+
     static func formatRate(_ bytesPerSec: Double) -> String {
         if bytesPerSec >= 1_000_000_000 {
             return String(format: "%.1f GB/s", bytesPerSec / 1_000_000_000.0)
@@ -37,6 +45,10 @@ enum ByteFormatter {
         } else {
             return String(format: "%.0f B/s", bytesPerSec)
         }
+    }
+
+    static func formatTransferRate(_ bytesPerSec: UInt64) -> String {
+        formatRate(Double(bytesPerSec))
     }
 
     static func formatWatts(_ watts: Double) -> String {
