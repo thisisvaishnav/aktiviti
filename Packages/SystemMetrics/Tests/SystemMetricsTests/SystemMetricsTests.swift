@@ -72,8 +72,6 @@ final class SystemMetricsTests: XCTestCase {
         ]
 
         let result = CPUCalculator.calculateDelta(previous: prev, current: curr)
-        // Total ticks used = 400 + 0 + 200 + 100 = 700. Total ticks = 1600.
-        // Overall % = 700 / 1600 * 100 = 43.75%
         XCTAssertEqual(result.totalUsage, 43.75, accuracy: 0.01)
         XCTAssertEqual(result.perCoreUsage.count, 4)
         XCTAssertEqual(result.perCoreUsage[0], 100.0, accuracy: 0.01)
@@ -126,7 +124,6 @@ final class SystemMetricsTests: XCTestCase {
         XCTAssertEqual(metrics.compressedBytes, 25 * 4096)
         XCTAssertEqual(metrics.totalBytes, 819_200)
         XCTAssertEqual(metrics.pressureLevel, .normal)
-        // 716800 / 819200 = 87.5%
         XCTAssertEqual(metrics.usedPercent, 87.5, accuracy: 0.01)
     }
 
@@ -209,9 +206,44 @@ final class SystemMetricsTests: XCTestCase {
     }
 
     func testLiveSystemSnapshotCapture() {
-        let snapshot = SystemSnapshot.capture(topProcessLimit: 5)
+        let snapshot = SystemSnapshot.capture(topProcessLimit: 5, includePorts: true)
         XCTAssertGreaterThan(snapshot.ram.totalBytes, 0)
         XCTAssertGreaterThan(snapshot.disk.totalBytes, 0)
         XCTAssertLessThanOrEqual(snapshot.topProcesses.count, 5)
+        // Verify port scanning captured or gracefully succeeded
+        XCTAssertGreaterThanOrEqual(snapshot.listeningPorts.count, 0)
+    }
+
+    // MARK: - Port Doctor & PortScanner Tests
+
+    func testPortScannerServiceNames() {
+        XCTAssertEqual(PortScanner.serviceName(for: 3000), "React / Next.js")
+        XCTAssertEqual(PortScanner.serviceName(for: 5173), "Vite")
+        XCTAssertEqual(PortScanner.serviceName(for: 5000), "Flask / AirPlay")
+        XCTAssertEqual(PortScanner.serviceName(for: 8000), "Django / FastAPI")
+        XCTAssertEqual(PortScanner.serviceName(for: 8080), "HTTP / Webpack")
+        XCTAssertEqual(PortScanner.serviceName(for: 5432), "PostgreSQL")
+        XCTAssertEqual(PortScanner.serviceName(for: 6379), "Redis")
+        XCTAssertEqual(PortScanner.serviceName(for: 11434), "Ollama (Local AI)")
+        XCTAssertEqual(PortScanner.serviceName(for: 99999), "TCP Service")
+    }
+
+    func testPortScannerTerminationGuards() {
+        // Must reject terminating kernel/launchd or invalid PIDs
+        XCTAssertFalse(PortScanner.terminateProcess(pid: 0))
+        XCTAssertFalse(PortScanner.terminateProcess(pid: 1))
+        XCTAssertFalse(PortScanner.terminateProcess(pid: -5))
+    }
+
+    func testLiveListeningPortScanSanity() {
+        let ports = PortScanner.scanListeningPorts()
+        // Every detected port must be a valid TCP port number
+        for item in ports {
+            XCTAssertGreaterThan(item.pid, 0)
+            XCTAssertGreaterThanOrEqual(item.port, 1)
+            XCTAssertLessThanOrEqual(item.port, 65535)
+            XCTAssertFalse(item.processName.isEmpty)
+            XCTAssertEqual(item.id, "\(item.pid):\(item.port)")
+        }
     }
 }

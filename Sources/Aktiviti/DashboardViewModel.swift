@@ -41,6 +41,7 @@ final class DashboardViewModel {
     var displayProcesses: [ProcessDisplayItem] = []
     var powerProcesses: [ProcessDisplayItem] = []
     var projectsTelemetry: ProjectsTelemetry = ProjectScanner.scan()
+    var listeningPorts: [ListeningPortInfo] = []
     var isLoading: Bool = true
 
     // Historical bars for sparklines (normalized 0.0 - 100.0)
@@ -76,6 +77,30 @@ final class DashboardViewModel {
     }
     var buildSystemSummary: String {
         projectsTelemetry.buildSystemSummary
+    }
+
+    var activePortCount: Int {
+        listeningPorts.count
+    }
+
+    var devPortCount: Int {
+        listeningPorts.filter { $0.port >= 3000 && $0.port <= 9999 }.count
+    }
+
+    var orphanedPortCount: Int {
+        listeningPorts.filter { $0.isOrphaned }.count
+    }
+
+    func reclaimPort(port: Int) {
+        if let target = listeningPorts.first(where: { $0.port == port }) {
+            PortScanner.terminateProcess(pid: target.pid, force: true)
+            listeningPorts.removeAll { $0.port == port }
+        }
+    }
+
+    func terminatePortProcess(pid: pid_t) {
+        PortScanner.terminateProcess(pid: pid, force: true)
+        listeningPorts.removeAll { $0.pid == pid }
     }
 
     private let cpuSampler: CPUSampler
@@ -194,7 +219,8 @@ final class DashboardViewModel {
                 diskSampler: diskS,
                 processSampler: procS,
                 topProcessLimit: 12,
-                cachedDisk: currentDiskToUse
+                cachedDisk: currentDiskToUse,
+                includePorts: true
             )
 
             let defaultIcon = NSWorkspace.shared.icon(for: .application)
@@ -333,6 +359,7 @@ final class DashboardViewModel {
             self.snapshot = nextSnapshot
             self.displayProcesses = memItems
             self.powerProcesses = powerItems
+            self.listeningPorts = nextSnapshot.listeningPorts
             self.isLoading = false
 
             // Update histories with live percentages
@@ -558,5 +585,12 @@ final class DashboardViewModel {
             return (first.name, first.icon, ByteFormatter.formatBytes(first.bytes, style: .file))
         }
         return ("aktiviti", NSWorkspace.shared.icon(for: .application), "0 MB")
+    }
+
+    var topListeningApp: (name: String, icon: NSImage, value: String) {
+        if let first = listeningPorts.first {
+            return (first.processName, NSWorkspace.shared.icon(for: .application), ":\(first.port)")
+        }
+        return ("None", NSWorkspace.shared.icon(for: .application), "No ports")
     }
 }

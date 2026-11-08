@@ -26,6 +26,9 @@ public struct SystemSnapshot: Sendable, Equatable {
     /// Top power-consuming processes.
     public let topPowerProcesses: [ProcessMetrics]
 
+    /// Active listening TCP ports and dev servers.
+    public let listeningPorts: [ListeningPortInfo]
+
     public init(
         cpu: CPUMetrics?,
         ram: RAMMetrics,
@@ -34,7 +37,8 @@ public struct SystemSnapshot: Sendable, Equatable {
         gpu: GPUMetrics? = nil,
         network: NetworkMetrics? = nil,
         battery: BatteryMetrics? = nil,
-        topPowerProcesses: [ProcessMetrics] = []
+        topPowerProcesses: [ProcessMetrics] = [],
+        listeningPorts: [ListeningPortInfo] = []
     ) {
         self.cpu = cpu
         self.ram = ram
@@ -44,6 +48,7 @@ public struct SystemSnapshot: Sendable, Equatable {
         self.battery = battery
         self.topProcesses = topProcesses
         self.topPowerProcesses = topPowerProcesses
+        self.listeningPorts = listeningPorts
     }
 
     /// Captures a one-shot snapshot of system metrics.
@@ -54,7 +59,8 @@ public struct SystemSnapshot: Sendable, Equatable {
         diskSampler: DiskSampler? = nil,
         processSampler: ProcessSampler? = nil,
         topProcessLimit: Int = 10,
-        cachedDisk: DiskMetrics? = nil
+        cachedDisk: DiskMetrics? = nil,
+        includePorts: Bool = false
     ) -> SystemSnapshot {
         let cpu = cpuSampler?.sample()
         let ram = RAMReader.read()
@@ -74,6 +80,8 @@ public struct SystemSnapshot: Sendable, Equatable {
             powerProcs = ProcessReader.readTopPowerProcesses(limit: 5)
         }
 
+        let ports = includePorts ? PortScanner.scanListeningPorts() : []
+
         return SystemSnapshot(
             cpu: cpu,
             ram: ram,
@@ -82,7 +90,8 @@ public struct SystemSnapshot: Sendable, Equatable {
             gpu: gpu,
             network: network,
             battery: battery,
-            topPowerProcesses: powerProcs
+            topPowerProcesses: powerProcs,
+            listeningPorts: ports
         )
     }
 
@@ -90,7 +99,8 @@ public struct SystemSnapshot: Sendable, Equatable {
     public static func capture(
         samplingCPUFor samplingInterval: TimeInterval,
         topProcessLimit: Int = 10,
-        cachedDisk: DiskMetrics? = nil
+        cachedDisk: DiskMetrics? = nil,
+        includePorts: Bool = false
     ) -> SystemSnapshot {
         let sampler = CPUSampler()
         let cpu = sampler.sample(afterDelay: samplingInterval)
@@ -98,13 +108,15 @@ public struct SystemSnapshot: Sendable, Equatable {
         let disk = cachedDisk ?? DiskReader.read()
         let processes = ProcessReader.readTopProcesses(limit: topProcessLimit)
         let powerProcs = ProcessReader.readTopPowerProcesses(limit: 5)
+        let ports = includePorts ? PortScanner.scanListeningPorts() : []
 
         return SystemSnapshot(
             cpu: cpu,
             ram: ram,
             disk: disk,
             topProcesses: processes,
-            topPowerProcesses: powerProcs
+            topPowerProcesses: powerProcs,
+            listeningPorts: ports
         )
     }
 }
