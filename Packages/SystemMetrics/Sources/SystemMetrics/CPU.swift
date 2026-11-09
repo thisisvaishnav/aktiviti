@@ -85,9 +85,12 @@ public struct CPUMetrics: Sendable, Equatable {
 
 /// Pure math helpers for CPU usage calculation from tick deltas.
 public enum CPUCalculator {
+    /// Cached hardware topology constant since core topology never changes at runtime.
+    public static let cachedTopology: CPUCoreTopology = readCoreTopology()
+
     /// Computes CPU metrics from tick deltas between two samples.
     public static func calculateDelta(previous: [CoreTicks], current: [CoreTicks]) -> CPUMetrics {
-        let topology = readCoreTopology()
+        let topology = cachedTopology
         let loads = readLoadAverages()
 
         guard !previous.isEmpty, previous.count == current.count else {
@@ -178,15 +181,15 @@ public enum CPUCalculator {
 
     public static func readLoadAverages() -> (Double, Double, Double) {
         var loads = [Double](repeating: 0.0, count: 3)
-        let result = getloadavg(&loads, 3)
-        if result >= 3 {
-            return (loads[0], loads[1], loads[2])
+        let count = getloadavg(&loads, 3)
+        guard count == 3 else {
+            return (0.0, 0.0, 0.0)
         }
-        return (1.50, 1.20, 1.00)
+        return (loads[0], loads[1], loads[2])
     }
 }
 
-/// Thread-safe sampler for tracking host CPU load ticks.
+/// State-holding sampler for CPU utilization.
 public final class CPUSampler: @unchecked Sendable {
     private let lock = NSLock()
     private var previousSample: [CoreTicks]?
@@ -212,7 +215,7 @@ public final class CPUSampler: @unchecked Sendable {
                 totalUsage: 0.0,
                 perCoreUsage: zeros,
                 loadAverages: CPUCalculator.readLoadAverages(),
-                topology: CPUCalculator.readCoreTopology()
+                topology: CPUCalculator.cachedTopology
             )
         }
 

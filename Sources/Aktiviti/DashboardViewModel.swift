@@ -337,14 +337,6 @@ final class DashboardViewModel {
                         if let pid = g.pids.first, let app = NSRunningApplication(processIdentifier: pid) {
                             foundIcon = app.icon
                         }
-                        if foundIcon == nil {
-                            for app in NSWorkspace.shared.runningApplications {
-                                if let aName = app.localizedName, (aName == name || aName.contains(name) || name.contains(aName)) {
-                                    foundIcon = app.icon
-                                    break
-                                }
-                            }
-                        }
                         let resolved = foundIcon ?? defaultIcon
                         localCache[key] = resolved
                         icon = resolved
@@ -376,14 +368,12 @@ final class DashboardViewModel {
 
         guard !Task.isCancelled else { return }
 
-        var updatedCache: [ProcessIconKey: NSImage] = [:]
-        for item in memItems {
-            updatedCache[ProcessIconKey(pid: item.pid, name: item.name)] = item.icon
+        for item in memItems + powerItems {
+            self.iconCache[ProcessIconKey(pid: item.pid, name: item.name)] = item.icon
         }
-        for item in powerItems {
-            updatedCache[ProcessIconKey(pid: item.pid, name: item.name)] = item.icon
+        if self.iconCache.count > 64 {
+            self.iconCache = Dictionary(uniqueKeysWithValues: Array(self.iconCache.prefix(64)))
         }
-        self.iconCache = updatedCache
         self.cachedDisk = nextSnapshot.disk
 
         let onUpdate = self.onMetricsUpdate

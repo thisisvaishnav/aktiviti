@@ -29,6 +29,14 @@ public struct ProcessMetrics: Sendable, Equatable {
 
 /// Discovers running processes and queries memory footprint, CPU time, and disk I/O using libproc.
 public final class ProcessSampler: @unchecked Sendable {
+    private struct RawProcessRecord {
+        let pid: pid_t
+        let bytes: UInt64
+        let powerMilliwatts: Double
+        let cpuPercent: Double
+        let diskBytesPerSec: Double
+    }
+
     private let lock = NSLock()
     private var prevTimes: [pid_t: (cpuTime: UInt64, diskBytes: UInt64)] = [:]
     private var prevTimestamp: Date?
@@ -59,12 +67,10 @@ public final class ProcessSampler: @unchecked Sendable {
             UnsafeMutableRawPointer($0).bindMemory(to: rusage_info_t?.self, capacity: 1)
         }
 
-        var records: [ProcessMetrics] = []
-        records.reserveCapacity(min(count, 512))
+        var rawRecords: [RawProcessRecord] = []
+        rawRecords.reserveCapacity(min(count, 512))
         var newTimes: [pid_t: (cpuTime: UInt64, diskBytes: UInt64)] = [:]
         newTimes.reserveCapacity(count)
-
-        var nameBuffer = [CChar](repeating: 0, count: 256)
 
         for i in 0..<count {
             let pid = pids[i]
@@ -90,16 +96,10 @@ public final class ProcessSampler: @unchecked Sendable {
                 cpuPct = min(25.0, max(0.5, Double(footprint) / (1024.0 * 1024.0 * 1024.0) * 8.0))
             }
 
-            nameBuffer[0] = 0
-            let nameLen = proc_name(pid, &nameBuffer, UInt32(nameBuffer.count))
-            guard nameLen > 0 else { continue }
-            let name = String(cString: nameBuffer)
-
             let powerEst = (cpuPct * 80.0) + (Double(footprint) / (1024.0 * 1024.0 * 1024.0) * 120.0)
 
-            records.append(ProcessMetrics(
+            rawRecords.append(RawProcessRecord(
                 pid: pid,
-                name: name,
                 bytes: footprint,
                 powerMilliwatts: powerEst,
                 cpuPercent: cpuPct,
@@ -109,16 +109,56 @@ public final class ProcessSampler: @unchecked Sendable {
 
         prevTimes = newTimes
 
-        var byMemory = records
+        // Sort lightweight records to identify only the top candidates
+        var byMemory = rawRecords
         byMemory.sort { $0.bytes > $1.bytes }
+        let topMem = Array(byMemory.prefix(limit))
 
-        var byPower = records
+        var byPower = rawRecords
         byPower.sort { ($0.cpuPercent + $0.powerMilliwatts) > ($1.cpuPercent + $1.powerMilliwatts) }
+        let topPower = Array(byPower.prefix(limit))
 
-        return (
-            memory: Array(byMemory.prefix(limit)),
-            power: Array(byPower.prefix(limit))
-        )
+        // Resolve process names lazily only for the top candidate PIDs
+        // avoids hundreds of proc_name syscalls and String allocations on non-top daemons
+        var nameBuffer = [CChar](repeating: 0, count: 256)
+        var resolvedNames: [pid_t: String] = [:]
+        resolvedNames.reserveCapacity(limit * 2)
+
+        for raw in (topMem + topPower) {
+            if resolvedNames[raw.pid] == nil {
+                nameBuffer[0] = 0
+                let nameLen = proc_name(raw.pid, &nameBuffer, UInt32(nameBuffer.count))
+                if nameLen > 0 {
+                    resolvedNames[raw.pid] = String(cString: nameBuffer)
+                } else {
+                    resolvedNames[raw.pid] = "Process \(raw.pid)"
+                }
+            }
+        }
+
+        let memoryMetrics = topMem.map { raw in
+            ProcessMetrics(
+                pid: raw.pid,
+                name: resolvedNames[raw.pid] ?? "Process \(raw.pid)",
+                bytes: raw.bytes,
+                powerMilliwatts: raw.powerMilliwatts,
+                cpuPercent: raw.cpuPercent,
+                diskBytesPerSec: raw.diskBytesPerSec
+            )
+        }
+
+        let powerMetrics = topPower.map { raw in
+            ProcessMetrics(
+                pid: raw.pid,
+                name: resolvedNames[raw.pid] ?? "Process \(raw.pid)",
+                bytes: raw.bytes,
+                powerMilliwatts: raw.powerMilliwatts,
+                cpuPercent: raw.cpuPercent,
+                diskBytesPerSec: raw.diskBytesPerSec
+            )
+        }
+
+        return (memory: memoryMetrics, power: powerMetrics)
     }
 }
 

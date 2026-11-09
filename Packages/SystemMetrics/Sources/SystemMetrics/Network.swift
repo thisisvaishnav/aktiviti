@@ -46,6 +46,11 @@ public final class NetworkSampler: @unchecked Sendable {
     private var initialIn: UInt64 = 0
     private var initialOut: UInt64 = 0
 
+    // Caching Wi-Fi details avoids expensive CoreWLAN IPC on every single tick
+    private var cachedWiFiDetails: (Double?, String?) = (nil, nil)
+    private var wiFiTickCounter: Int = 0
+    private var lastWiFiInterface: String = ""
+
     public init() {
         let (inBytes, outBytes, _) = Self.readRawTotals()
         self.previousTime = Date()
@@ -61,7 +66,15 @@ public final class NetworkSampler: @unchecked Sendable {
 
         let now = Date()
         let (currentIn, currentOut, primaryIface) = Self.readRawTotals()
-        let (linkSpeed, bandStr) = Self.readWiFiDetails(primaryIface: primaryIface)
+
+        // Periodically refresh Wi-Fi parameters every 15 ticks (30s) or on interface change
+        if wiFiTickCounter % 15 == 0 || primaryIface != lastWiFiInterface || cachedWiFiDetails == (nil, nil) {
+            cachedWiFiDetails = Self.readWiFiDetails(primaryIface: primaryIface)
+            lastWiFiInterface = primaryIface
+        }
+        wiFiTickCounter += 1
+
+        let (linkSpeed, bandStr) = cachedWiFiDetails
 
         guard let prevTime = previousTime else {
             previousTime = now

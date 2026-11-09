@@ -218,7 +218,7 @@ struct ProjectsTabView: View {
                 .padding(.vertical, 32)
             } else {
                 VStack(spacing: 11) {
-                    ForEach(viewModel.listeningPorts.prefix(5)) { item in
+                    ForEach(Array(viewModel.listeningPorts.prefix(5))) { item in
                         HStack(spacing: 12) {
                             // Port Badge
                             HStack(spacing: 3) {

@@ -64,7 +64,7 @@ public struct SystemSnapshot: Sendable, Equatable {
     ) -> SystemSnapshot {
         let cpu = cpuSampler?.sample()
         let ram = RAMReader.read()
-        let disk = diskSampler?.sample() ?? cachedDisk ?? DiskReader.read()
+        let disk = diskSampler?.sample(cachedBase: cachedDisk) ?? cachedDisk ?? DiskReader.read()
         let gpu = gpuSampler?.sample()
         let network = networkSampler?.sample()
         let battery = BatteryReader.read()

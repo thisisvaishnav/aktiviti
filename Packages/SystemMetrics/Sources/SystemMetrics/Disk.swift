@@ -85,11 +85,11 @@ public final class DiskSampler: @unchecked Sendable {
         self.previousWrite = w
     }
 
-    public func sample(path: String = "/") -> DiskMetrics {
+    public func sample(cachedBase: DiskMetrics? = nil, path: String = "/") -> DiskMetrics {
         lock.lock()
         defer { lock.unlock() }
 
-        let base = DiskReader.read(path: path)
+        let base = cachedBase ?? DiskReader.read(path: path)
         let now = Date()
         let (currentRead, currentWrite) = Self.readRawBlockIO()
 
@@ -144,10 +144,8 @@ public final class DiskSampler: @unchecked Sendable {
         if IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iterator) == kIOReturnSuccess {
             var service = IOIteratorNext(iterator)
             while service != 0 {
-                var props: Unmanaged<CFMutableDictionary>?
-                if IORegistryEntryCreateCFProperties(service, &props, kCFAllocatorDefault, 0) == kIOReturnSuccess,
-                   let dict = props?.takeRetainedValue() as? [String: Any],
-                   let stats = dict["Statistics"] as? [String: Any] {
+                if let prop = IORegistryEntryCreateCFProperty(service, "Statistics" as CFString, kCFAllocatorDefault, 0),
+                   let stats = prop.takeRetainedValue() as? [String: Any] {
                     if let r = stats["Bytes read from block device"] as? NSNumber {
                         totalRead += r.uint64Value
                     }
