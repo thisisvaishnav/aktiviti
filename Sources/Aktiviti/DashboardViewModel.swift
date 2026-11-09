@@ -3,7 +3,7 @@ import Foundation
 import Observation
 import SystemMetrics
 
-public enum NavigationTab: String, CaseIterable, Identifiable, Sendable {
+enum NavigationTab: String, CaseIterable, Identifiable {
     case overview = "Overview"
     case cpu = "CPU"
     case memory = "Memory"
@@ -13,18 +13,18 @@ public enum NavigationTab: String, CaseIterable, Identifiable, Sendable {
     case battery = "Battery"
     case projects = "Projects"
 
-    public var id: String { rawValue }
+    var id: String { rawValue }
 
-    public var iconName: String {
+    var iconName: String {
         switch self {
-        case .overview: return "square.grid.2x2.fill"
+        case .overview: return "square.grid.2x2"
         case .cpu: return "cpu"
         case .memory: return "memorychip"
         case .disk: return "internaldrive"
         case .network: return "network"
-        case .gpu: return "square.stack.3d.up"
+        case .gpu: return "display"
         case .battery: return "battery.100"
-        case .projects: return "folder"
+        case .projects: return "folder.badge.gearshape"
         }
     }
 }
@@ -36,13 +36,20 @@ struct ProcessIconKey: Hashable, Sendable {
 
 @Observable
 final class DashboardViewModel {
-    var selectedTab: NavigationTab = .overview
+    var selectedTab: NavigationTab = .overview {
+        didSet {
+            if selectedTab == .projects {
+                loadProjectsTelemetryIfNeeded()
+            }
+        }
+    }
     var snapshot: SystemSnapshot?
     var displayProcesses: [ProcessDisplayItem] = []
     var powerProcesses: [ProcessDisplayItem] = []
-    var projectsTelemetry: ProjectsTelemetry = ProjectScanner.scan()
+    var projectsTelemetry: ProjectsTelemetry = ProjectScanner.placeholder()
     var listeningPorts: [ListeningPortInfo] = []
     var isLoading: Bool = true
+    private var hasLoadedProjects: Bool = false
 
     // Historical bars for sparklines (normalized 0.0 - 100.0)
     var cpuHistory: [Double] = []
@@ -95,12 +102,34 @@ final class DashboardViewModel {
         if let target = listeningPorts.first(where: { $0.port == port }) {
             PortScanner.terminateProcess(pid: target.pid, force: true)
             listeningPorts.removeAll { $0.port == port }
+            rescanPortsAsync()
         }
     }
 
     func terminatePortProcess(pid: pid_t) {
         PortScanner.terminateProcess(pid: pid, force: true)
         listeningPorts.removeAll { $0.pid == pid }
+        rescanPortsAsync()
+    }
+
+    private func rescanPortsAsync() {
+        Task.detached(priority: .userInitiated) {
+            let updated = PortScanner.scanListeningPorts()
+            await MainActor.run { [weak self] in
+                self?.listeningPorts = updated
+            }
+        }
+    }
+
+    func loadProjectsTelemetryIfNeeded(force: Bool = false) {
+        if hasLoadedProjects && !force { return }
+        hasLoadedProjects = true
+        Task.detached(priority: .utility) {
+            let telemetry = ProjectScanner.scan()
+            await MainActor.run { [weak self] in
+                self?.projectsTelemetry = telemetry
+            }
+        }
     }
 
     private let cpuSampler: CPUSampler
@@ -176,6 +205,7 @@ final class DashboardViewModel {
     func stopRefreshing() {
         refreshTask?.cancel()
         refreshTask = nil
+        iconCache.removeAll(keepingCapacity: false)
     }
 
     func pauseRefreshing() {
@@ -211,6 +241,9 @@ final class DashboardViewModel {
         diskTickCounter += 1
 
         let capturedCache = self.iconCache
+        let currentTab = self.selectedTab
+        let shouldScanPorts = (currentTab == .projects)
+
         let (nextSnapshot, memItems, powerItems) = await Task.detached(priority: .userInitiated) { () -> (SystemSnapshot, [ProcessDisplayItem], [ProcessDisplayItem]) in
             let snap = SystemSnapshot.capture(
                 cpuSampler: cpuS,
@@ -218,9 +251,9 @@ final class DashboardViewModel {
                 networkSampler: netS,
                 diskSampler: diskS,
                 processSampler: procS,
-                topProcessLimit: 12,
+                topProcessLimit: 8,
                 cachedDisk: currentDiskToUse,
-                includePorts: true
+                includePorts: shouldScanPorts
             )
 
             let defaultIcon = NSWorkspace.shared.icon(for: .application)
@@ -359,7 +392,9 @@ final class DashboardViewModel {
             self.snapshot = nextSnapshot
             self.displayProcesses = memItems
             self.powerProcesses = powerItems
-            self.listeningPorts = nextSnapshot.listeningPorts
+            if shouldScanPorts || self.listeningPorts.isEmpty {
+                self.listeningPorts = nextSnapshot.listeningPorts
+            }
             self.isLoading = false
 
             // Update histories with live percentages

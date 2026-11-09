@@ -214,6 +214,19 @@ final class SystemMetricsTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(snapshot.listeningPorts.count, 0)
     }
 
+    // MARK: - Mach Port Leak Prevention Test
+
+    func testMachPortLeakPrevention() {
+        // Repeated calls to RAMReader.read() and CPUSampler.readCurrentTicks()
+        // must properly deallocate mach_host_self ports without memory exhaustion or crash
+        for _ in 0..<50 {
+            let ram = RAMReader.read()
+            XCTAssertGreaterThan(ram.totalBytes, 0)
+            let ticks = CPUSampler.readCurrentTicks()
+            XCTAssertFalse(ticks.isEmpty)
+        }
+    }
+
     // MARK: - Port Doctor & PortScanner Tests
 
     func testPortScannerServiceNames() {

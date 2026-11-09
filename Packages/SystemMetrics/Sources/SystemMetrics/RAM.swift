@@ -109,9 +109,12 @@ public enum RAMReader {
         var vmStats = vm_statistics64()
         var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size)
 
+        let hostPort = mach_host_self()
+        defer { mach_port_deallocate(mach_task_self_, hostPort) }
+
         let result = withUnsafeMutablePointer(to: &vmStats) { ptr -> kern_return_t in
             ptr.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { intPtr in
-                host_statistics64(mach_host_self(), HOST_VM_INFO64, intPtr, &count)
+                host_statistics64(hostPort, HOST_VM_INFO64, intPtr, &count)
             }
         }
 

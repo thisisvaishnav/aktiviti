@@ -241,13 +241,15 @@ public final class CPUSampler: @unchecked Sendable {
         var infoCount: mach_msg_type_number_t = 0
         var info: processor_info_array_t?
 
+        let hostPort = mach_host_self()
         let result = host_processor_info(
-            mach_host_self(),
+            hostPort,
             PROCESSOR_CPU_LOAD_INFO,
             &numCPUs,
             &info,
             &infoCount
         )
+        mach_port_deallocate(mach_task_self_, hostPort)
 
         guard result == KERN_SUCCESS, let cpuInfo = info else {
             return []

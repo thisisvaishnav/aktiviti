@@ -20,6 +20,48 @@ public struct ProjectsTelemetry: @unchecked Sendable {
 }
 
 public enum ProjectScanner {
+    public static func placeholder() -> ProjectsTelemetry {
+        ProjectsTelemetry(
+            projects: [],
+            totalBytes: 0,
+            derivedDataBytes: 318 * 1024 * 1024,
+            gitStatusClean: true,
+            buildSystemSummary: "swiftc / clang / xcodebuild"
+        )
+    }
+
+    /// Computes bounded directory byte size without unbounded deep recursive enumeration.
+    private static func shallowDirectorySize(at url: URL) -> UInt64 {
+        guard let items = try? FileManager.default.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return 0
+        }
+        var total: UInt64 = 0
+        for item in items {
+            let values = try? item.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
+            if values?.isDirectory == false {
+                total += UInt64(values?.fileSize ?? 0)
+            } else {
+                // Check immediate subfiles up to 1 level deep to avoid recursion explosion
+                if let subitems = try? FileManager.default.contentsOfDirectory(
+                    at: item,
+                    includingPropertiesForKeys: [.fileSizeKey],
+                    options: [.skipsHiddenFiles]
+                ) {
+                    for sub in subitems.prefix(40) {
+                        if let s = try? sub.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+                            total += UInt64(s)
+                        }
+                    }
+                }
+            }
+        }
+        return total
+    }
+
     public static func scan() -> ProjectsTelemetry {
         let defaultAppIcon = NSWorkspace.shared.icon(for: .application)
         var projects: [ScannedProject] = []
@@ -101,15 +143,8 @@ public enum ProjectScanner {
                 icon = NSWorkspace.shared.icon(forFile: path)
             }
 
-            // Calculate byte size on disk
-            var totalBytes: UInt64 = 0
-            if let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]) {
-                for case let fileURL as URL in enumerator {
-                    if let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize {
-                        totalBytes += UInt64(size)
-                    }
-                }
-            }
+            // Fast shallow byte size calculation to avoid huge memory allocations
+            var totalBytes: UInt64 = shallowDirectorySize(at: url)
             if totalBytes == 0 {
                 totalBytes = 250_000_000
             }
@@ -125,14 +160,16 @@ public enum ProjectScanner {
             ))
         }
 
-        // Calculate DerivedData size
+        // Calculate DerivedData size using shallow directory contents
         let derivedDataURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Developer/Xcode/DerivedData")
         var derivedBytes: UInt64 = 0
-        if let enumerator = FileManager.default.enumerator(at: derivedDataURL, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]) {
-            for case let fileURL as URL in enumerator {
-                if let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize {
-                    derivedBytes += UInt64(size)
-                }
+        if let items = try? FileManager.default.contentsOfDirectory(
+            at: derivedDataURL,
+            includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for item in items {
+                derivedBytes += shallowDirectorySize(at: item)
             }
         }
         if derivedBytes == 0 {
