@@ -1,1 +1,0 @@
-import{a as c,c as r}from"./theme.CIfuWuDn.js";const t=document.querySelectorAll("[data-theme-switch] [data-value]"),a=()=>t.forEach(e=>e.setAttribute("aria-checked",String(e.dataset.value===r())));t.forEach(e=>e.addEventListener("click",()=>c(e.dataset.value)));document.addEventListener("themechange",a);a();

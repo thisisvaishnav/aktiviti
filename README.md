@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="website/icon.png" width="96" height="96" alt="Aktiviti Logo" />
+<img src="assets/icon.png" width="96" height="96" alt="Aktiviti Logo" />
 
 # Aktiviti
 
@@ -23,6 +23,9 @@
 **Aktiviti** is a native macOS menu bar app and system telemetry dashboard built for developers, engineers, and power users who need instant, actionable insight into their Mac’s performance without the bloat, battery drain, or noise of conventional utilities.
 
 Unlike standard tools that bombard you with thousands of obscure system threads, Aktiviti surfaces the processes, developer servers, git worktrees, listening ports, and hardware telemetry that matter most to your daily workflow.
+
+> [!NOTE]
+> Looking for the marketing website, documentation, and product guides? They are maintained in a dedicated repository at [thisisvaishnav/aktiviti.com](https://github.com/thisisvaishnav/aktiviti.com).
 
 ### 🌟 Key Highlights
 
@@ -54,7 +57,7 @@ Unlike standard tools that bombard you with thousands of obscure system threads,
 - **Disk & Storage:** Real-time read/write throughput (MB/s), total and available volume capacity, and active I/O monitoring.
 - **GPU:** Real-time Apple Silicon GPU core utilization percentage and Metal graphics engine status via IOKit.
 - **Network:** Instant upload and download bandwidth rates (KB/s & MB/s), active network interface monitoring (`en0` / Wi-Fi / Ethernet), and throughput sparkline charts.
-- **Battery & Power:** Live State of Charge (%), charging and power adapter state, power draw in Watts, and high-energy app attribution via `IOPowerSources`.
+- **Battery & Power:** Live State of Charge (%), charging and power adapter state, power draw in Watts, and high-energy app attribution via `IOPowerSources``.
 - **Projects & Workspaces:** Automated workspace discovery scanning local directories for Git branch states, tech stacks (Xcode, SwiftPM, Python/Flask, etc.), and derived data cache footprints.
 
 ---
@@ -90,8 +93,8 @@ aktiviti/
 │       │   └── metrics-cli/   # CLI executable target for terminal metrics
 │       └── Tests/
 │           └── SystemMetricsTests/ # Unit tests validating math, deltas, and sampling logic
+├── assets/                    # Application icon and visual branding assets
 ├── docs/                      # Architectural documentation and plans
-├── website/                   # Product documentation, guides, and comparison pages
 └── project.yml                # Declarative XcodeGen project specification
 ```
 
